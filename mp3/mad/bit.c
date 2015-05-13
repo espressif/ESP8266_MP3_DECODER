@@ -41,7 +41,7 @@
  * G(X) = X^16 + X^15 + X^2 + 1
  */
 static
-unsigned short const crc_table[256] = {
+unsigned short const ICACHE_RODATA_ATTR crc_table[256] = {
   0x0000, 0x8005, 0x800f, 0x000a, 0x801b, 0x001e, 0x0014, 0x8011,
   0x8033, 0x0036, 0x003c, 0x8039, 0x0028, 0x802d, 0x8027, 0x0022,
   0x8063, 0x0066, 0x006c, 0x8069, 0x0078, 0x807d, 0x8077, 0x0072,
@@ -190,6 +190,7 @@ void mad_bit_write(struct mad_bitptr *bitptr, unsigned int len,
 }
 # endif
 
+
 /*
  * NAME:	bit->crc()
  * DESCRIPTION:	compute CRC-check word
@@ -204,19 +205,19 @@ unsigned short mad_bit_crc(struct mad_bitptr bitptr, unsigned int len,
 
     data = mad_bit_read(&bitptr, 32);
 
-    crc = (crc << 8) ^ crc_table[((crc >> 8) ^ (data >> 24)) & 0xff];
-    crc = (crc << 8) ^ crc_table[((crc >> 8) ^ (data >> 16)) & 0xff];
-    crc = (crc << 8) ^ crc_table[((crc >> 8) ^ (data >>  8)) & 0xff];
-    crc = (crc << 8) ^ crc_table[((crc >> 8) ^ (data >>  0)) & 0xff];
+    crc = (crc << 8) ^ unalShort(&crc_table[((crc >> 8) ^ (data >> 24)) & 0xff]);
+    crc = (crc << 8) ^ unalShort(&crc_table[((crc >> 8) ^ (data >> 16)) & 0xff]);
+    crc = (crc << 8) ^ unalShort(&crc_table[((crc >> 8) ^ (data >>  8)) & 0xff]);
+    crc = (crc << 8) ^ unalShort(&crc_table[((crc >> 8) ^ (data >>  0)) & 0xff]);
   }
 
   switch (len / 8) {
   case 3: crc = (crc << 8) ^
-	    crc_table[((crc >> 8) ^ mad_bit_read(&bitptr, 8)) & 0xff];
+	    unalShort(&crc_table[((crc >> 8) ^ mad_bit_read(&bitptr, 8)) & 0xff]);
   case 2: crc = (crc << 8) ^
-	    crc_table[((crc >> 8) ^ mad_bit_read(&bitptr, 8)) & 0xff];
+	    unalShort(&crc_table[((crc >> 8) ^ mad_bit_read(&bitptr, 8)) & 0xff]);
   case 1: crc = (crc << 8) ^
-	    crc_table[((crc >> 8) ^ mad_bit_read(&bitptr, 8)) & 0xff];
+	    unalShort(&crc_table[((crc >> 8) ^ mad_bit_read(&bitptr, 8)) & 0xff]);
 
   len %= 8;
 

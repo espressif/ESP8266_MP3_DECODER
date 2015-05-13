@@ -17,15 +17,94 @@
 #include "lwip/dns.h"
 #include "lwip/netdb.h"
 
-#include "udhcp/dhcpd.h"
+#include "mad.h"
 
-#define server_ip "192.168.101.142"
-#define server_port 9669
+//#define server_ip "192.168.40.115"
+//#define server_ip "192.168.1.5"
+#define server_ip "192.168.4.100"
+#define server_port 1234
 
-void task2(void *pvParameters)
+struct madPrivateData {
+	int fd;
+};
+
+
+char readBuf[4096];
+static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *stream) {
+	int n;
+	struct madPrivateData *p = (struct madPrivateData*)data;
+	printf("C > Read from sock\n");
+	n=read(p->fd, readBuf, sizeof(readBuf));
+	printf("C > Read %d bytes.\n", n);
+	if (n==0) return MAD_FLOW_STOP;
+	mad_stream_buffer(stream, readBuf, n);
+	return MAD_FLOW_CONTINUE;
+}
+
+static inline signed int scale(mad_fixed_t sample) {
+  /* round */
+  sample += (1L << (MAD_F_FRACBITS - 16));
+
+  /* clip */
+  if (sample >= MAD_F_ONE)
+    sample = MAD_F_ONE - 1;
+  else if (sample < -MAD_F_ONE)
+    sample = -MAD_F_ONE;
+
+  /* quantize */
+  return sample >> (MAD_F_FRACBITS + 1 - 16);
+}
+
+static enum mad_flow ICACHE_FLASH_ATTR output(void *data, struct mad_header const *header, struct mad_pcm *pcm) {
+	unsigned int nchannels, nsamples;
+	mad_fixed_t const *left_ch, *right_ch;
+
+	/* pcm->samplerate contains the sampling frequency */
+
+	nchannels = pcm->channels;
+	nsamples  = pcm->length;
+	left_ch   = pcm->samples[0];
+	right_ch  = pcm->samples[1];
+
+	printf("Output: %d channels %d samples\n", nchannels, nsamples);
+/*
+	while (nsamples--) {
+		signed int sample;
+
+		sample = scale(*left_ch++);
+		putchar((sample >> 0) & 0xff);
+		putchar((sample >> 8) & 0xff);
+
+		if (nchannels == 2) {
+			sample = scale(*right_ch++);
+			putchar((sample >> 0) & 0xff);
+			 putchar((sample >> 8) & 0xff);
+		}
+	}
+*/
+	 return MAD_FLOW_CONTINUE;
+}
+
+static enum mad_flow  ICACHE_FLASH_ATTR error(void *data, struct mad_stream *stream, struct mad_frame *frame) {
+	struct madPrivateData *p = (struct madPrivateData*)data;
+	printf("decoding error 0x%04x (%s)\n",
+	  stream->error, mad_stream_errorstr(stream));
+
+  /* return MAD_FLOW_BREAK here to stop decoding (and propagate an error) */
+
+  return MAD_FLOW_CONTINUE;
+}
+
+#include "../mad/align.h"
+
+static unsigned short const ICACHE_RODATA_ATTR tstp[]={0x1234, 0x5678};
+
+void ICACHE_FLASH_ATTR tskmad(void *pvParameters)
 {
-    printf("Hello, welcome to client!\r\n");
+	struct mad_decoder decoder;
+	struct madPrivateData priv;
 
+	printf("P: %x %x\n", unalShort(&tstp[0]), unalShort(&tstp[1]));
     while (1) {
         int recbytes;
         int sin_size;
@@ -56,23 +135,16 @@ void task2(void *pvParameters)
             continue;
         }
 
-        printf("C > connect ok!\n");
-        char *pbuf = (char *)zalloc(1024);
-        sprintf(pbuf, "%s\n", "client_send info");
 
-        if (write(sta_socket, pbuf, strlen(pbuf) + 1) < 0) {
-            printf("C > send fail\n");
-        }
+		printf("C > Decode start!\n");
+		mad_decoder_init(&decoder, &priv,
+			   input, 0 /* header */, 0 /* filter */, output,
+			   error, 0 /* message */);
+		mad_decoder_run(&decoder, MAD_DECODER_MODE_SYNC);
+		mad_decoder_finish(&decoder);
 
-        printf("C > send success\n");
-        free(pbuf);
-
-        char *recv_buf = (char *)zalloc(128);
-        while ((recbytes = read(sta_socket , recv_buf, 128)) > 0) {
-        	recv_buf[recbytes] = 0;
-            printf("C > read data success %d!\nC > %s\n", recbytes, recv_buf);
-        }
-        free(recv_buf);
+//        char *recv_buf = (char *)zalloc(128);
+  //      while ((recbytes = read(sta_socket , recv_buf, 128)) > 0) {
 
         if (recbytes <= 0) {
             printf("C > read data fail!\n");
@@ -80,123 +152,30 @@ void task2(void *pvParameters)
     }
 }
 
-void task3(void *pvParameters)
-{
-    while (1) {
-        struct sockaddr_in server_addr, client_addr;
-        int server_sock, client_sock;
-        socklen_t sin_size;
-        bzero(&server_addr, sizeof(struct sockaddr_in));
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_addr.s_addr = INADDR_ANY;
-        server_addr.sin_port = htons(80);
 
-        int recbytes;
-
-        do {
-            if (-1 == (server_sock = socket(AF_INET, SOCK_STREAM, 0))) {
-                printf("S > socket error\n");
-                break;
-            }
-
-            printf("S > create socket: %d\n", server_sock);
-
-            if (-1 == bind(server_sock, (struct sockaddr *)(&server_addr), sizeof(struct sockaddr))) {
-                printf("S > bind fail\n");
-                break;
-            }
-
-            printf("S > bind port: %d\n", ntohs(server_addr.sin_port));
-
-            if (-1 == listen(server_sock, 5)) {
-                printf("S > listen fail\n");
-                break;
-            }
-
-            printf("S > listen ok\n");
-
-            sin_size = sizeof(client_addr);
-
-            for (;;) {
-                printf("S > wait client\n");
-
-                if ((client_sock = accept(server_sock, (struct sockaddr *) &client_addr, &sin_size)) < 0) {
-                    printf("S > accept fail\n");
-                    continue;
-                }
-
-                printf("S > Client from %s %d\n", inet_ntoa(client_addr.sin_addr), htons(client_addr.sin_port));
-
-                char *recv_buf = (char *)zalloc(128);
-                while ((recbytes = read(client_sock , recv_buf, 128)) > 0) {
-                	recv_buf[recbytes] = 0;
-                    printf("S > read data success %d!\nS > %s\n", recbytes, recv_buf);
-                }
-                free(recv_buf);
-
-                if (recbytes <= 0) {
-                    printf("S > read data fail!\n");
-                    close(client_sock);
-                }
-            }
-        } while (0);
-    }
-}
-
-/******************************************************************************
- * FunctionName : user_init
- * Description  : entry of user application, init user function here
- * Parameters   : none
- * Returns      : none
-*******************************************************************************/
 void ICACHE_FLASH_ATTR
 user_init(void)
 {
+	UART_SetBaudrate(0, 115200);
     printf("SDK version:%s\n", system_get_sdk_version());
 
     /* need to set opmode before you set config */
     wifi_set_opmode(STATIONAP_MODE);
+//    wifi_set_opmode(STATION_MODE);
 
     {
         struct station_config *config = (struct station_config *)zalloc(sizeof(struct station_config));
-        sprintf(config->ssid, "CVR100W_T");
-        sprintf(config->password, "justfortest");
+        sprintf(config->ssid, "wifi-2");
+        sprintf(config->password, "thesumof6+6=12");
+//        sprintf(config->ssid, "Sprite");
+//       sprintf(config->password, "pannenkoek");
 
         /* need to sure that you are in station mode first,
          * otherwise it will be failed. */
         wifi_station_set_config(config);
         free(config);
     }
-    
-    {
-        struct ip_info ipinfo;
-    	    
-        ipinfo.gw.addr = ipaddr_addr("192.168.145.253");
-    	ipinfo.ip.addr = ipaddr_addr("192.168.145.253");
-    	ipinfo.netmask.addr = ipaddr_addr("255.255.255.0");
-    	
-    	wifi_set_ip_info(SOFTAP_IF, &ipinfo);
-    }
 
-    {
-        struct dhcp_info *pdhcp_info = NULL;
-    
-        pdhcp_info = (struct dhcp_info *)zalloc(sizeof(struct dhcp_info));
-        pdhcp_info->start_ip = ipaddr_addr("192.168.145.100");
-        pdhcp_info->end_ip = ipaddr_addr("192.168.145.110");    // don't set the range too large, because it will cost memory.
-        pdhcp_info->max_leases = 10;
-        pdhcp_info->auto_time = 60;
-        pdhcp_info->decline_time = 60;
-        pdhcp_info->conflict_time = 60;
-        pdhcp_info->offer_time = 60;
-        pdhcp_info->min_lease_sec = 60;
-        dhcp_set_info(pdhcp_info);
-        free(pdhcp_info);
-    }
-    
-    udhcpd_start();
-
-    xTaskCreate(task2, "tsk2", 256, NULL, 2, NULL);
-    xTaskCreate(task3, "tsk3", 256, NULL, 2, NULL);
+    xTaskCreate(tskmad, "tskmad", 2048, NULL, 2, NULL);
 }
 

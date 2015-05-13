@@ -42,7 +42,7 @@
  * used in both Layer I and Layer II decoding
  */
 static
-mad_fixed_t const sf_table[64] = {
+mad_fixed_t const ICACHE_RODATA_ATTR sf_table[64] = {
 # include "sf_table.dat"
 };
 
@@ -50,7 +50,7 @@ mad_fixed_t const sf_table[64] = {
 
 /* linear scaling table */
 static
-mad_fixed_t const linear_table[14] = {
+mad_fixed_t const ICACHE_RODATA_ATTR linear_table[14] = {
   MAD_F(0x15555555),  /* 2^2  / (2^2  - 1) == 1.33333333333333 */
   MAD_F(0x12492492),  /* 2^3  / (2^3  - 1) == 1.14285714285714 */
   MAD_F(0x11111111),  /* 2^4  / (2^4  - 1) == 1.06666666666667 */
@@ -72,7 +72,7 @@ mad_fixed_t const linear_table[14] = {
  * DESCRIPTION:	decode one requantized Layer I sample from a bitstream
  */
 static
-mad_fixed_t I_sample(struct mad_bitptr *ptr, unsigned int nb)
+mad_fixed_t ICACHE_FLASH_ATTR I_sample(struct mad_bitptr *ptr, unsigned int nb)
 {
   mad_fixed_t sample;
 
@@ -101,7 +101,7 @@ mad_fixed_t I_sample(struct mad_bitptr *ptr, unsigned int nb)
  * NAME:	layer->I()
  * DESCRIPTION:	decode a single Layer I frame
  */
-int mad_layer_I(struct mad_stream *stream, struct mad_frame *frame)
+int ICACHE_FLASH_ATTR mad_layer_I(struct mad_stream *stream, struct mad_frame *frame)
 {
   struct mad_header *header = &frame->header;
   unsigned int nch, bound, ch, s, sb, nb;
@@ -218,7 +218,7 @@ static
 struct {
   unsigned int sblimit;
   unsigned char const offsets[30];
-} const sbquant_table[5] = {
+} const ICACHE_RODATA_ATTR sbquant_table[5] = {
   /* ISO/IEC 11172-3 Table B.2a */
   { 27, { 7, 7, 7, 6, 6, 6, 6, 6, 6, 6, 6, 3, 3, 3, 3, 3,	/* 0 */
 	  3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0 } },
@@ -239,7 +239,7 @@ static
 struct {
   unsigned short nbal;
   unsigned short offset;
-} const bitalloc_table[8] = {
+} const ICACHE_RODATA_ATTR bitalloc_table[8] = {
   { 2, 0 },  /* 0 */
   { 2, 3 },  /* 1 */
   { 3, 3 },  /* 2 */
@@ -252,7 +252,7 @@ struct {
 
 /* offsets into quantization class table */
 static
-unsigned char const offset_table[6][15] = {
+unsigned char const ICACHE_RODATA_ATTR offset_table[6][15] = {
   { 0, 1, 16                                             },  /* 0 */
   { 0, 1,  2, 3, 4, 5, 16                                },  /* 1 */
   { 0, 1,  2, 3, 4, 5,  6, 7,  8,  9, 10, 11, 12, 13, 14 },  /* 2 */
@@ -269,7 +269,7 @@ struct quantclass {
   unsigned char bits;
   mad_fixed_t C;
   mad_fixed_t D;
-} const qc_table[17] = {
+} const ICACHE_RODATA_ATTR qc_table[17] = {
 # include "qc_table.dat"
 };
 
@@ -278,7 +278,7 @@ struct quantclass {
  * DESCRIPTION:	decode three requantized Layer II samples from a bitstream
  */
 static
-void II_samples(struct mad_bitptr *ptr,
+void ICACHE_FLASH_ATTR II_samples(struct mad_bitptr *ptr,
 		struct quantclass const *quantclass,
 		mad_fixed_t output[3])
 {
@@ -328,7 +328,7 @@ void II_samples(struct mad_bitptr *ptr,
  * NAME:	layer->II()
  * DESCRIPTION:	decode a single Layer II frame
  */
-int mad_layer_II(struct mad_stream *stream, struct mad_frame *frame)
+int ICACHE_FLASH_ATTR mad_layer_II(struct mad_stream *stream, struct mad_frame *frame)
 {
   struct mad_header *header = &frame->header;
   struct mad_bitptr start;

@@ -35,7 +35,7 @@
 # include "layer3.h"
 
 static
-unsigned long const bitrate_table[5][15] = {
+unsigned long const ICACHE_RODATA_ATTR bitrate_table[5][15] = {
   /* MPEG-1 */
   { 0,  32000,  64000,  96000, 128000, 160000, 192000, 224000,  /* Layer I   */
        256000, 288000, 320000, 352000, 384000, 416000, 448000 },
@@ -52,10 +52,10 @@ unsigned long const bitrate_table[5][15] = {
 };
 
 static
-unsigned int const samplerate_table[3] = { 44100, 48000, 32000 };
+unsigned int const ICACHE_RODATA_ATTR samplerate_table[3] = { 44100, 48000, 32000 };
 
 static
-int (*const decoder_table[3])(struct mad_stream *, struct mad_frame *) = {
+int ICACHE_RODATA_ATTR (*const decoder_table[3])(struct mad_stream *, struct mad_frame *) = {
   mad_layer_I,
   mad_layer_II,
   mad_layer_III
@@ -65,7 +65,7 @@ int (*const decoder_table[3])(struct mad_stream *, struct mad_frame *) = {
  * NAME:	header->init()
  * DESCRIPTION:	initialize header struct
  */
-void mad_header_init(struct mad_header *header)
+void ICACHE_FLASH_ATTR mad_header_init(struct mad_header *header)
 {
   header->layer          = 0;
   header->mode           = 0;
@@ -88,7 +88,7 @@ void mad_header_init(struct mad_header *header)
  * NAME:	frame->init()
  * DESCRIPTION:	initialize frame struct
  */
-void mad_frame_init(struct mad_frame *frame)
+void ICACHE_FLASH_ATTR mad_frame_init(struct mad_frame *frame)
 {
   mad_header_init(&frame->header);
 
@@ -102,7 +102,7 @@ void mad_frame_init(struct mad_frame *frame)
  * NAME:	frame->finish()
  * DESCRIPTION:	deallocate any dynamic memory associated with frame
  */
-void mad_frame_finish(struct mad_frame *frame)
+void ICACHE_FLASH_ATTR mad_frame_finish(struct mad_frame *frame)
 {
   mad_header_finish(&frame->header);
 
@@ -117,7 +117,7 @@ void mad_frame_finish(struct mad_frame *frame)
  * DESCRIPTION:	read header data and following CRC word
  */
 static
-int decode_header(struct mad_header *header, struct mad_stream *stream)
+int ICACHE_FLASH_ATTR decode_header(struct mad_header *header, struct mad_stream *stream)
 {
   unsigned int index;
 
@@ -236,7 +236,7 @@ int decode_header(struct mad_header *header, struct mad_stream *stream)
  * DESCRIPTION:	attempt to discover the bitstream's free bitrate
  */
 static
-int free_bitrate(struct mad_stream *stream, struct mad_header const *header)
+int ICACHE_FLASH_ATTR free_bitrate(struct mad_stream *stream, struct mad_header const *header)
 {
   struct mad_bitptr keep_ptr;
   unsigned long rate = 0;
@@ -297,7 +297,7 @@ int free_bitrate(struct mad_stream *stream, struct mad_header const *header)
  * NAME:	header->decode()
  * DESCRIPTION:	read the next frame header from the stream
  */
-int mad_header_decode(struct mad_header *header, struct mad_stream *stream)
+int ICACHE_FLASH_ATTR mad_header_decode(struct mad_header *header, struct mad_stream *stream)
 {
   register unsigned char const *ptr, *end;
   unsigned int pad_slot, N;
@@ -435,7 +435,7 @@ int mad_header_decode(struct mad_header *header, struct mad_stream *stream)
  * NAME:	frame->decode()
  * DESCRIPTION:	decode a single frame from a bitstream
  */
-int mad_frame_decode(struct mad_frame *frame, struct mad_stream *stream)
+int ICACHE_FLASH_ATTR mad_frame_decode(struct mad_frame *frame, struct mad_stream *stream)
 {
   frame->options = stream->options;
 
@@ -481,7 +481,7 @@ int mad_frame_decode(struct mad_frame *frame, struct mad_stream *stream)
  * NAME:	frame->mute()
  * DESCRIPTION:	zero all subband values so the frame becomes silent
  */
-void mad_frame_mute(struct mad_frame *frame)
+void ICACHE_FLASH_ATTR mad_frame_mute(struct mad_frame *frame)
 {
   unsigned int s, sb;
 

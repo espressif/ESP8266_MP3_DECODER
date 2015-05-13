@@ -39,7 +39,7 @@ mad_timer_t const mad_timer_zero = { 0, 0 };
  * NAME:	timer->compare()
  * DESCRIPTION:	indicate relative order of two timers
  */
-int mad_timer_compare(mad_timer_t timer1, mad_timer_t timer2)
+int ICACHE_FLASH_ATTR mad_timer_compare(mad_timer_t timer1, mad_timer_t timer2)
 {
   signed long diff;
 
@@ -62,7 +62,7 @@ int mad_timer_compare(mad_timer_t timer1, mad_timer_t timer2)
  * NAME:	timer->negate()
  * DESCRIPTION:	invert the sign of a timer
  */
-void mad_timer_negate(mad_timer_t *timer)
+void ICACHE_FLASH_ATTR mad_timer_negate(mad_timer_t *timer)
 {
   timer->seconds = -timer->seconds;
 
@@ -89,7 +89,7 @@ mad_timer_t mad_timer_abs(mad_timer_t timer)
  * DESCRIPTION:	carry timer fraction into seconds
  */
 static
-void reduce_timer(mad_timer_t *timer)
+void ICACHE_FLASH_ATTR reduce_timer(mad_timer_t *timer)
 {
   timer->seconds  += timer->fraction / MAD_TIMER_RESOLUTION;
   timer->fraction %= MAD_TIMER_RESOLUTION;
@@ -100,7 +100,7 @@ void reduce_timer(mad_timer_t *timer)
  * DESCRIPTION:	compute greatest common denominator
  */
 static
-unsigned long gcd(unsigned long num1, unsigned long num2)
+unsigned long ICACHE_FLASH_ATTR gcd(unsigned long num1, unsigned long num2)
 {
   unsigned long tmp;
 
@@ -118,13 +118,13 @@ unsigned long gcd(unsigned long num1, unsigned long num2)
  * DESCRIPTION:	convert rational expression to lowest terms
  */
 static
-void reduce_rational(unsigned long *numer, unsigned long *denom)
+void ICACHE_FLASH_ATTR reduce_rational(unsigned long *numer, unsigned long *denom)
 {
   unsigned long factor;
 
   factor = gcd(*numer, *denom);
 
-  assert(factor != 0);
+  //assert(factor != 0);
 
   *numer /= factor;
   *denom /= factor;
@@ -135,13 +135,13 @@ void reduce_rational(unsigned long *numer, unsigned long *denom)
  * DESCRIPTION:	solve numer/denom == ?/scale avoiding overflowing
  */
 static
-unsigned long scale_rational(unsigned long numer, unsigned long denom,
+unsigned long ICACHE_FLASH_ATTR scale_rational(unsigned long numer, unsigned long denom,
 			     unsigned long scale)
 {
   reduce_rational(&numer, &denom);
   reduce_rational(&scale, &denom);
 
-  assert(denom != 0);
+  //assert(denom != 0);
 
   if (denom < scale)
     return numer * (scale / denom) + numer * (scale % denom) / denom;
@@ -155,7 +155,7 @@ unsigned long scale_rational(unsigned long numer, unsigned long denom,
  * NAME:	timer->set()
  * DESCRIPTION:	set timer to specific (positive) value
  */
-void mad_timer_set(mad_timer_t *timer, unsigned long seconds,
+void ICACHE_FLASH_ATTR mad_timer_set(mad_timer_t *timer, unsigned long seconds,
 		   unsigned long numer, unsigned long denom)
 {
   timer->seconds = seconds;
@@ -227,7 +227,7 @@ void mad_timer_set(mad_timer_t *timer, unsigned long seconds,
  * NAME:	timer->add()
  * DESCRIPTION:	add one timer to another
  */
-void mad_timer_add(mad_timer_t *timer, mad_timer_t incr)
+void ICACHE_FLASH_ATTR mad_timer_add(mad_timer_t *timer, mad_timer_t incr)
 {
   timer->seconds  += incr.seconds;
   timer->fraction += incr.fraction;
@@ -240,7 +240,7 @@ void mad_timer_add(mad_timer_t *timer, mad_timer_t incr)
  * NAME:	timer->multiply()
  * DESCRIPTION:	multiply a timer by a scalar value
  */
-void mad_timer_multiply(mad_timer_t *timer, signed long scalar)
+void ICACHE_FLASH_ATTR mad_timer_multiply(mad_timer_t *timer, signed long scalar)
 {
   mad_timer_t addend;
   unsigned long factor;
@@ -267,7 +267,7 @@ void mad_timer_multiply(mad_timer_t *timer, signed long scalar)
  * NAME:	timer->count()
  * DESCRIPTION:	return timer value in selected units
  */
-signed long mad_timer_count(mad_timer_t timer, enum mad_units units)
+signed long ICACHE_FLASH_ATTR mad_timer_count(mad_timer_t timer, enum mad_units units)
 {
   switch (units) {
   case MAD_UNITS_HOURS:
@@ -321,7 +321,7 @@ signed long mad_timer_count(mad_timer_t timer, enum mad_units units)
  * NAME:	timer->fraction()
  * DESCRIPTION:	return fractional part of timer in arbitrary terms
  */
-unsigned long mad_timer_fraction(mad_timer_t timer, unsigned long denom)
+unsigned long ICACHE_FLASH_ATTR mad_timer_fraction(mad_timer_t timer, unsigned long denom)
 {
   timer = mad_timer_abs(timer);
 
@@ -342,7 +342,7 @@ unsigned long mad_timer_fraction(mad_timer_t timer, unsigned long denom)
  * NAME:	timer->string()
  * DESCRIPTION:	write a string representation of a timer using a template
  */
-void mad_timer_string(mad_timer_t timer,
+void ICACHE_FLASH_ATTR mad_timer_string(mad_timer_t timer,
 		      char *dest, char const *format, enum mad_units units,
 		      enum mad_units fracunits, unsigned long subparts)
 {

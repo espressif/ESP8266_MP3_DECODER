@@ -34,7 +34,7 @@
  * NAME:	stream->init()
  * DESCRIPTION:	initialize stream struct
  */
-void mad_stream_init(struct mad_stream *stream)
+void ICACHE_FLASH_ATTR mad_stream_init(struct mad_stream *stream)
 {
   stream->buffer     = 0;
   stream->bufend     = 0;
@@ -61,12 +61,12 @@ void mad_stream_init(struct mad_stream *stream)
  * NAME:	stream->finish()
  * DESCRIPTION:	deallocate any dynamic memory associated with stream
  */
-void mad_stream_finish(struct mad_stream *stream)
+void ICACHE_FLASH_ATTR mad_stream_finish(struct mad_stream *stream)
 {
-  if (stream->main_data) {
-    free(stream->main_data);
-    stream->main_data = 0;
-  }
+//  if (stream->main_data) {
+//    free(stream->main_data);
+//    stream->main_data = 0;
+//  }
 
   mad_bit_finish(&stream->anc_ptr);
   mad_bit_finish(&stream->ptr);
@@ -76,7 +76,7 @@ void mad_stream_finish(struct mad_stream *stream)
  * NAME:	stream->buffer()
  * DESCRIPTION:	set stream buffer pointers
  */
-void mad_stream_buffer(struct mad_stream *stream,
+void ICACHE_FLASH_ATTR mad_stream_buffer(struct mad_stream *stream,
 		       unsigned char const *buffer, unsigned long length)
 {
   stream->buffer = buffer;
@@ -94,7 +94,7 @@ void mad_stream_buffer(struct mad_stream *stream,
  * NAME:	stream->skip()
  * DESCRIPTION:	arrange to skip bytes before the next frame
  */
-void mad_stream_skip(struct mad_stream *stream, unsigned long length)
+void ICACHE_FLASH_ATTR mad_stream_skip(struct mad_stream *stream, unsigned long length)
 {
   stream->skiplen += length;
 }
@@ -103,7 +103,7 @@ void mad_stream_skip(struct mad_stream *stream, unsigned long length)
  * NAME:	stream->sync()
  * DESCRIPTION:	locate the next stream sync word
  */
-int mad_stream_sync(struct mad_stream *stream)
+int ICACHE_FLASH_ATTR mad_stream_sync(struct mad_stream *stream)
 {
   register unsigned char const *ptr, *end;
 
@@ -126,7 +126,7 @@ int mad_stream_sync(struct mad_stream *stream)
  * NAME:	stream->errorstr()
  * DESCRIPTION:	return a string description of the current error condition
  */
-char const *mad_stream_errorstr(struct mad_stream const *stream)
+char const ICACHE_FLASH_ATTR *mad_stream_errorstr(struct mad_stream const *stream)
 {
   switch (stream->error) {
   case MAD_ERROR_NONE:		 return "no error";

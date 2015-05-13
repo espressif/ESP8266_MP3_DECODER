@@ -15,7 +15,7 @@ TARGET = eagle
 #FLAVOR = release
 FLAVOR = debug
 
-#EXTRA_CCFLAGS += -u
+EXTRA_CCFLAGS += 
 
 ifndef PDIR # {
 GEN_IMAGES= eagle.app.v6.out
@@ -23,7 +23,8 @@ GEN_BINS= eagle.app.v6.bin
 SPECIAL_MKTARGETS=$(APP_MKTARGETS)
 SUBDIRS=    \
 	user \
-	mad
+	mad \
+	driver
 
 endif # } PDIR
 
@@ -48,13 +49,15 @@ endif
 
 COMPONENTS_eagle.app.v6 = \
 	user/libuser.a \
-	mad/libmad.a
+	mad/libmad.a \
+	driver/libdriver.a
 
 LINKFLAGS_eagle.app.v6 = \
 	-L../lib        \
 	-nostdlib	\
     -T$(LD_FILE)   \
 	-Wl,--no-check-sections	\
+	-Wl,--Map=mapfile \
     -u call_user_start	\
 	-Wl,-static						\
 	-Wl,--start-group					\

@@ -33,7 +33,7 @@
  * NAME:	synth->init()
  * DESCRIPTION:	initialize synth struct
  */
-void mad_synth_init(struct mad_synth *synth)
+void ICACHE_FLASH_ATTR mad_synth_init(struct mad_synth *synth)
 {
   mad_synth_mute(synth);
 
@@ -48,7 +48,7 @@ void mad_synth_init(struct mad_synth *synth)
  * NAME:	synth->mute()
  * DESCRIPTION:	zero all polyphase filterbank values, resetting synthesis
  */
-void mad_synth_mute(struct mad_synth *synth)
+void ICACHE_FLASH_ATTR mad_synth_mute(struct mad_synth *synth)
 {
   unsigned int ch, s, v;
 
@@ -120,7 +120,7 @@ void mad_synth_mute(struct mad_synth *synth)
  * DESCRIPTION:	perform fast in[32]->out[32] DCT
  */
 static
-void dct32(mad_fixed_t const in[32], unsigned int slot,
+void ICACHE_FLASH_ATTR dct32(mad_fixed_t const in[32], unsigned int slot,
 	   mad_fixed_t lo[16][8], mad_fixed_t hi[16][8])
 {
   mad_fixed_t t0,   t1,   t2,   t3,   t4,   t5,   t6,   t7;
@@ -542,12 +542,12 @@ void dct32(mad_fixed_t const in[32], unsigned int slot,
 # endif
 
 static
-mad_fixed_t const D[17][32] = {
+mad_fixed_t const ICACHE_RODATA_ATTR D[17][32] = {
 # include "D.dat"
 };
 
 # if defined(ASO_SYNTH)
-void synth_full(struct mad_synth *, struct mad_frame const *,
+void ICACHE_FLASH_ATTR synth_full(struct mad_synth *, struct mad_frame const *,
 		unsigned int, unsigned int);
 # else
 /*
@@ -555,7 +555,7 @@ void synth_full(struct mad_synth *, struct mad_frame const *,
  * DESCRIPTION:	perform full frequency PCM synthesis
  */
 static
-void synth_full(struct mad_synth *synth, struct mad_frame const *frame,
+void ICACHE_FLASH_ATTR synth_full(struct mad_synth *synth, struct mad_frame const *frame,
 		unsigned int nch, unsigned int ns)
 {
   unsigned int phase, ch, s, sb, pe, po;
@@ -692,7 +692,7 @@ void synth_full(struct mad_synth *synth, struct mad_frame const *frame,
  * DESCRIPTION:	perform half frequency PCM synthesis
  */
 static
-void synth_half(struct mad_synth *synth, struct mad_frame const *frame,
+void ICACHE_FLASH_ATTR synth_half(struct mad_synth *synth, struct mad_frame const *frame,
 		unsigned int nch, unsigned int ns)
 {
   unsigned int phase, ch, s, sb, pe, po;
@@ -829,7 +829,7 @@ void synth_half(struct mad_synth *synth, struct mad_frame const *frame,
  * NAME:	synth->frame()
  * DESCRIPTION:	perform PCM synthesis of frame subband samples
  */
-void mad_synth_frame(struct mad_synth *synth, struct mad_frame const *frame)
+void ICACHE_FLASH_ATTR mad_synth_frame(struct mad_synth *synth, struct mad_frame const *frame)
 {
   unsigned int nch, ns;
   void (*synth_frame)(struct mad_synth *, struct mad_frame const *,
