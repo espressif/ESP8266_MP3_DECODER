@@ -12,6 +12,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #include "lwip/sockets.h"
 #include "lwip/dns.h"
@@ -19,162 +20,213 @@
 
 #include "mad.h"
 
-//#define server_ip "192.168.40.115"
+#define server_ip "192.168.40.115"
 //#define server_ip "192.168.1.5"
-#define server_ip "192.168.4.100"
+//#define server_ip "192.168.4.100"
 #define server_port 1234
 
 struct madPrivateData {
 	int fd;
+	xSemaphoreHandle muxBufferBusy;
+	xSemaphoreHandle semNeedRead;
+	char buff[2016];
+	int buffPos;
 };
+
+#define printf(a, ...) while(0)
+
+struct madPrivateData madParms;
 
 void render_sample_block(short *short_sample_buff, int no_samples) {
 	int i, s;
-//	char samp[]={0x00, 0x01, 0x11, 0x15, 0x55, 0x75, 0x77, 0xf7, 0xff};
+	char samp[]={0x00, 0x01, 0x11, 0x15, 0x55, 0x75, 0x77, 0xf7, 0xff};
 	for (i=0; i<no_samples; i++) {
 		s=short_sample_buff[i];
 //		putchar((s >> 0) & 0xff);
-		putchar((s >> 8) & 0xff);
+//		putchar((s >> 8) & 0xff);
 	}
 //	printf("render_sample_block\n");
 }
 
 void set_dac_sample_rate(int rate) {
-//	printf("set_dac_sample_rate %d\n", rate);
+	printf("set_dac_sample_rate %d\n", rate);
 }
 
-//#define READBUFSZ 2016
-#define READBUFSZ 5000
-static char readBuf[READBUFSZ]; //The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources.
+#define READBUFSZ 2016
+static char readBuf[READBUFSZ]; //The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
 
 static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *stream) {
 	int n, i=0;
-	int rem;
+	int rem, canRead;
 	struct madPrivateData *p = (struct madPrivateData*)data;
 	//Shift remaining contents of buf to the front
 	rem=stream->bufend-stream->next_frame;
 	memmove(readBuf, stream->next_frame, rem);
 	i=rem;
 
-//	printf("C > Read from sock (%d bytes left in buff)\n", i);
-	while (i!=sizeof(readBuf)) {
-		n=read(p->fd, &readBuf[i], sizeof(readBuf)-i);
-		if (n==0) break;
-		i=i+n;
-	}
-	if (i==0) {
-		printf("C > End of stream!\n");
-		return MAD_FLOW_STOP;
-	}
-//	printf("C > Read %d bytes.\n", i);
-	mad_stream_buffer(stream, readBuf, i);
+	//Wait until there is enough data in the buffer. This only happens when the data feed rate is too low, and shouldn't normally be needed!
+	do {
+		xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
+		canRead=(p->buffPos>=(sizeof(readBuf)-rem));
+		xSemaphoreGive(p->muxBufferBusy);
+		if (!canRead) {
+			printf("Out of mp3 data! Waiting for more...\n");
+			vTaskDelay(300/portTICK_RATE_MS);
+		}
+	} while (!canRead);
+	//Read in bytes from buffer
+	xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
+	memcpy(&readBuf[rem], p->buff, sizeof(readBuf)-rem);
+	//Shift remaining contents of readBuff to the front
+	memmove(p->buff, &p->buff[sizeof(readBuf)-rem], sizeof(p->buff)-(sizeof(readBuf)-rem));
+	p->buffPos-=(sizeof(readBuf)-rem);
+	xSemaphoreGive(p->muxBufferBusy);
+
+	//Let reader thread read more data.
+	xSemaphoreGive(p->semNeedRead);
+	mad_stream_buffer(stream, readBuf, sizeof(readBuf));
 	return MAD_FLOW_CONTINUE;
 }
 
-static inline signed int scale(mad_fixed_t sample) {
-  /* round */
-  sample += (1L << (MAD_F_FRACBITS - 16));
-
-  /* clip */
-  if (sample >= MAD_F_ONE)
-    sample = MAD_F_ONE - 1;
-  else if (sample < -MAD_F_ONE)
-    sample = -MAD_F_ONE;
-
-  /* quantize */
-  return sample >> (MAD_F_FRACBITS + 1 - 16);
-}
-
+//Unused, the NXP implementation uses render_sample_block
 static enum mad_flow ICACHE_FLASH_ATTR output(void *data, struct mad_header const *header, struct mad_pcm *pcm) {
-#if 0
-	unsigned int nchannels, nsamples;
-	mad_fixed_t const *left_ch, *right_ch;
-
-	/* pcm->samplerate contains the sampling frequency */
-
-	nchannels = pcm->channels;
-	nsamples  = pcm->length;
-	left_ch   = pcm->samples[0];
-	right_ch  = pcm->samples[1];
-
-	printf("Output: %d channels %d samples\n", nchannels, nsamples);
-	while (nsamples--) {
-		signed int sample;
-
-		sample = scale(*left_ch++);
-		putchar((sample >> 0) & 0xff);
-		putchar((sample >> 8) & 0xff);
-
-		if (nchannels == 2) {
-			sample = scale(*right_ch++);
-			putchar((sample >> 0) & 0xff);
-			 putchar((sample >> 8) & 0xff);
-		}
-	}
-#endif
 	 return MAD_FLOW_CONTINUE;
 }
 
-static enum mad_flow  ICACHE_FLASH_ATTR error(void *data, struct mad_stream *stream, struct mad_frame *frame) {
-	struct madPrivateData *p = (struct madPrivateData*)data;
-	printf("decoding error 0x%04x (%s)\n",
-	  stream->error, mad_stream_errorstr(stream));
-
-  /* return MAD_FLOW_BREAK here to stop decoding (and propagate an error) */
-
-  return MAD_FLOW_CONTINUE;
+static enum mad_flow ICACHE_FLASH_ATTR error(void *data, struct mad_stream *stream, struct mad_frame *frame) {
+//	struct madPrivateData *p = (struct madPrivateData*)data;
+	printf("decoding error 0x%04x (%s)\n", stream->error, mad_stream_errorstr(stream));
+	return MAD_FLOW_CONTINUE;
 }
 
-#include "../mad/align.h"
 
-static unsigned short const ICACHE_RODATA_ATTR tstp[]={0x1234, 0x5678};
+//#define FAKE_MAD
+#ifndef FAKE_MAD
 
-void ICACHE_FLASH_ATTR tskmad(void *pvParameters)
-{
+void ICACHE_FLASH_ATTR tskmad(void *pvParameters){
 	struct mad_decoder decoder;
-	struct madPrivateData priv;
-
-	printf("P: %x %x\n", unalShort(&tstp[0]), unalShort(&tstp[1]));
-    while (1) {
-        int recbytes;
-        int sin_size;
-        int str_len;
-        int sta_socket;
-
-        struct sockaddr_in local_ip;
-        struct sockaddr_in remote_ip;
-
-        sta_socket = socket(PF_INET, SOCK_STREAM, 0);
-
-        if (-1 == sta_socket) {
-            close(sta_socket);
-            printf("C > socket fail!\n");
-            continue;
-        }
-
-        printf("C > socket ok!\n");
-        bzero(&remote_ip, sizeof(struct sockaddr_in));
-        remote_ip.sin_family = AF_INET;
-        remote_ip.sin_addr.s_addr = inet_addr(server_ip);
-        remote_ip.sin_port = htons(server_port);
-
-        if (0 != connect(sta_socket, (struct sockaddr *)(&remote_ip), sizeof(struct sockaddr))) {
-            close(sta_socket);
-            printf("C > connect fail!\n");
-            vTaskDelay(4000 / portTICK_RATE_MS);
-            continue;
-        }
-
-
-		printf("C > Decode start!\n");
-		mad_decoder_init(&decoder, &priv,
-			   input, 0 /* header */, 0 /* filter */, output,
-			   error, 0 /* message */);
-		mad_decoder_run(&decoder, MAD_DECODER_MODE_SYNC);
-		mad_decoder_finish(&decoder);
-	        printf("C > Decode done.\n");
-    }
+	struct madPrivateData *p=&madParms; //pvParameters;
+	printf("MAD: Decoder init.\n");
+	mad_decoder_init(&decoder, p, input, 0, 0 , output, error, 0);
+	mad_decoder_run(&decoder, MAD_DECODER_MODE_SYNC);
+	mad_decoder_finish(&decoder);
+	printf("MAD: Decode done.\n");
 }
+
+#else
+void ICACHE_FLASH_ATTR tskmad(void *pvParameters){
+	int n, i=0;
+	int rem, canRead;
+	struct madPrivateData *p = &madParms;
+	while(1) {
+		//Wait until there is enough data in the buffer. This only happens when the data feed rate is too low, and shouldn't normally be needed!
+		do {
+			xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
+			canRead=(p->buffPos>=(sizeof(readBuf)));
+			xSemaphoreGive(p->muxBufferBusy);
+			if (!canRead) {
+				printf("Out of mp3 data! Waiting for more...\n");
+				vTaskDelay(300/portTICK_RATE_MS);
+			}
+		} while (!canRead);
+		//Read in bytes from buffer
+		xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
+		p->buffPos=0;
+		xSemaphoreGive(p->muxBufferBusy);
+
+		//Let reader thread read more data.
+		xSemaphoreGive(p->semNeedRead);
+
+
+		vTaskDelay(100/portTICK_RATE_MS);
+	}
+}
+#endif
+
+/*
+THIS IS TOO SLOW! Incoming packets arrive, but with big hickups.
+Things that don't help:
+- AP/STA
+- More free memory
+- Killing muxes
+- Doing a write before the select
+*/
+
+void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
+	struct madPrivateData *p=&madParms;//pvParameters;
+	while(1) {
+		int n, i;
+		struct sockaddr_in remote_ip;
+		fd_set fdsRead;
+		int sock=socket(PF_INET, SOCK_STREAM, 0);
+		if (sock==-1) {
+			printf("Client socket create error\n");
+			continue;
+		}
+		n=1;
+		setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &n, sizeof(n));
+		n=1024;
+		setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &n, sizeof(n));
+		bzero(&remote_ip, sizeof(struct sockaddr_in));
+		remote_ip.sin_family = AF_INET;
+		remote_ip.sin_addr.s_addr = inet_addr(server_ip);
+		remote_ip.sin_port = htons(server_port);
+		printf("Connecting to client...\n");
+		if (connect(sock, (struct sockaddr *)(&remote_ip), sizeof(struct sockaddr))!=00) {
+			close(sock);
+			printf("Client connect fail.\n");
+			vTaskDelay(1000/portTICK_RATE_MS);
+			continue;
+		}
+		
+		while(1) {
+			while (p->buffPos!=sizeof(p->buff)) {
+				//Wait for more data
+				printf("Doing select...\n");
+				FD_ZERO(&fdsRead);
+				FD_SET(p->fd, &fdsRead);
+				lwip_select(p->fd+1, &fdsRead, NULL, NULL, NULL);
+				//Take buffer mux and read data.
+				xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
+				n=read(p->fd, &p->buff[p->buffPos], sizeof(p->buff)-p->buffPos);
+				p->buffPos+=n;
+				xSemaphoreGive(p->muxBufferBusy);
+				printf("%d bytes of data read from socket.\n", n);
+				if (n==0) break; //ToDo: handle eof better
+			}
+			printf("Buffer full. Waiting for mad to empty it.\n");
+			//Try to take the semaphore. This will wait until the mad task signals it needs more data.
+			xSemaphoreTake(p->semNeedRead, portMAX_DELAY);
+		}
+	}
+}
+
+void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
+	vTaskDelay(3000/portTICK_RATE_MS);
+	printf("Connecting to AP...\n");
+	wifi_station_disconnect();
+//	wifi_set_opmode(STATIONAP_MODE);
+	if (wifi_get_opmode() != STATION_MODE) { 
+		wifi_set_opmode(STATION_MODE);
+	}
+//	wifi_set_opmode(SOFTAP_MODE);
+
+	struct station_config *config=malloc(sizeof(struct station_config));
+	memset(config, 0x00, sizeof(struct station_config));
+	sprintf(config->ssid, "wifi-2");
+	sprintf(config->password, "thesumof6+6=12");
+//	sprintf(config->ssid, "Sprite");
+//	sprintf(config->password, "pannenkoek");
+	wifi_station_set_config(config);
+	wifi_station_connect();
+	free(config);
+	printf("Connection thread done.\n");
+
+	xTaskCreate(tskreader, "tskreader", 300, NULL, 11, NULL);
+	xTaskCreate(tskmad, "tskmad", 2300, NULL, 3, NULL);
+	vTaskDelete(NULL);
+}
+
 
 
 void ICACHE_FLASH_ATTR
@@ -182,25 +234,12 @@ user_init(void)
 {
 	UART_SetBaudrate(0, 115200);
 //	UART_SetBaudrate(0, 441000);
-    printf("SDK version:%s\n", system_get_sdk_version());
+	printf("SDK version:%s\n", system_get_sdk_version());
 
-    /* need to set opmode before you set config */
-    wifi_set_opmode(STATIONAP_MODE);
-//    wifi_set_opmode(STATION_MODE);
+	madParms.muxBufferBusy=xSemaphoreCreateMutex();
+	vSemaphoreCreateBinary(madParms.semNeedRead);
+	printf("Starting tasks...\n");
+	xTaskCreate(tskconnect, "tskconnect", 200, NULL, 3, NULL);
 
-    {
-        struct station_config *config = (struct station_config *)zalloc(sizeof(struct station_config));
-        sprintf(config->ssid, "wifi-2");
-        sprintf(config->password, "thesumof6+6=12");
-//        sprintf(config->ssid, "Sprite");
-//       sprintf(config->password, "pannenkoek");
-
-        /* need to sure that you are in station mode first,
-         * otherwise it will be failed. */
-        wifi_station_set_config(config);
-        free(config);
-    }
-
-    xTaskCreate(tskmad, "tskmad", 2800, NULL, 2, NULL);
 }
 
