@@ -19,4 +19,10 @@
  ../../include/espressif/esp8266/uart_register.h \
  ../../include/espressif/smartconfig.h \
  ../../include/espressif/spi_flash.h config.h fixed.h frame.h timer.h \
- stream.h bit.h synth.h D.dat
+ stream.h bit.h synth.h ../../extra_include/string.h \
+ ../../extra_include/_ansi.h ../../extra_include/newlib.h \
+ ../../extra_include/sys/config.h ../../extra_include/machine/ieeefp.h \
+ ../../extra_include/sys/reent.h ../../extra_include/_ansi.h \
+ ../../extra_include/sys/_types.h ../../extra_include/sys/lock.h \
+ /home/jeroen/esp8266/esp-open-sdk/xtensa-lx106-elf/lib/gcc/xtensa-lx106-elf/4.8.2/include/stddef.h \
+ D.dat

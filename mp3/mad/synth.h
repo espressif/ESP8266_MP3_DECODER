@@ -24,7 +24,6 @@
 
 # include "fixed.h"
 # include "frame.h"
-# include "lpc_io.h"
 
 struct mad_pcm {
   unsigned int samplerate;		/* sampling frequency (Hz) */

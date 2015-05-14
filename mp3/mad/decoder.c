@@ -561,7 +561,7 @@ int ICACHE_FLASH_ATTR mad_decoder_run(struct mad_decoder *decoder, enum mad_deco
     return -1;
 
 //  decoder->sync = malloc(sizeof(*decoder->sync));
-  decoder->sync=decsync;
+  decoder->sync=&decsync;
   if (decoder->sync == 0)
     return -1;
 

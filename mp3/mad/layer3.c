@@ -2530,7 +2530,7 @@ int ICACHE_FLASH_ATTR mad_layer_III(struct mad_stream *stream, struct mad_frame 
   /* allocate Layer III dynamic structures */
     stream->main_data=(void*)madbuff;
     frame->overlap=(void*)ovlbuf;
-	stream->main_data=MainData;
+	stream->main_data=&MainData;
 /*
   if (stream->main_data == 0) {
     stream->main_data = malloc(MAD_BUFFER_MDLEN);

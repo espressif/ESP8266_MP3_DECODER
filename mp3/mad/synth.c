@@ -29,7 +29,6 @@
 # include "frame.h"
 # include "synth.h"
 # include "string.h"
-# include "lpc_io.h"
 
 /*
  * The following utility routine performs simple rounding, clipping, and
@@ -602,7 +601,7 @@ void ICACHE_FLASH_ATTR synth_full(struct mad_synth *synth, struct mad_frame cons
 
     for (ch = 0; ch < nch; ++ch)
     {
-    sbsample = &frame->sbsample[ch];
+    sbsample = (void*)&frame->sbsample[ch];
     filter   = &synth->filter[ch];
       pcm1     = short_sample_buff;
 
@@ -759,7 +758,7 @@ void ICACHE_FLASH_ATTR synth_half(struct mad_synth *synth, struct mad_frame cons
 
     for (ch = 0; ch < nch; ++ch)
     {
-    sbsample = &frame->sbsample[ch];
+    sbsample = (void *)&frame->sbsample[ch];
     filter   = &synth->filter[ch];
       pcm1     = short_sample_buff;
 

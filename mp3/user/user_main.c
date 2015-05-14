@@ -28,6 +28,14 @@ struct madPrivateData {
 	int fd;
 };
 
+void render_sample_block(short short_sample_buff, int no_samples) {
+	printf("render_sample_block\n");
+}
+
+void set_dac_sample_rate(int rate) {
+	printf("set_dac_sample_rate %d\n", rate);
+}
+
 
 char readBuf[2016];
 static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *stream) {
@@ -73,6 +81,7 @@ static enum mad_flow ICACHE_FLASH_ATTR output(void *data, struct mad_header cons
 	mad_fixed_t const *left_ch, *right_ch;
 
 	/* pcm->samplerate contains the sampling frequency */
+/*
 
 	nchannels = pcm->channels;
 	nsamples  = pcm->length;
@@ -80,7 +89,6 @@ static enum mad_flow ICACHE_FLASH_ATTR output(void *data, struct mad_header cons
 	right_ch  = pcm->samples[1];
 
 	printf("Output: %d channels %d samples\n", nchannels, nsamples);
-/*
 	while (nsamples--) {
 		signed int sample;
 
