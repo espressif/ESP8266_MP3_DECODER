@@ -107,7 +107,7 @@ void ICACHE_FLASH_ATTR mad_frame_finish(struct mad_frame *frame)
   mad_header_finish(&frame->header);
 
   if (frame->overlap) {
-    free(frame->overlap);
+//    free(frame->overlap);
     frame->overlap = 0;
   }
 }

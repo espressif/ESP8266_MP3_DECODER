@@ -543,7 +543,7 @@ int ICACHE_FLASH_ATTR mad_decoder_run(struct mad_decoder *decoder, enum mad_deco
 {
   int result;
   int (*run)(struct mad_decoder *) = 0;
-  static char *decsync[sizeof(*decoder->sync)];
+  static struct sync_t decsync; //statically-allocated decoder obj
 
   switch (decoder->mode = mode) {
   case MAD_DECODER_MODE_SYNC:
@@ -561,7 +561,7 @@ int ICACHE_FLASH_ATTR mad_decoder_run(struct mad_decoder *decoder, enum mad_deco
     return -1;
 
 //  decoder->sync = malloc(sizeof(*decoder->sync));
-  decoder->sync=(void*)decsync;
+  decoder->sync=decsync;
   if (decoder->sync == 0)
     return -1;
 

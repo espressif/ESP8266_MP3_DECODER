@@ -691,6 +691,7 @@ enum mad_error {
 };
 
 # define MAD_RECOVERABLE(error)	((error) & 0xff00)
+typedef unsigned char main_data_t[MAD_BUFFER_MDLEN];
 
 struct mad_stream {
   unsigned char const *buffer;		/* input bitstream buffer */
@@ -707,7 +708,9 @@ struct mad_stream {
   struct mad_bitptr anc_ptr;		/* ancillary bits pointer */
   unsigned int anc_bitlen;		/* number of ancillary bits */
 
-  unsigned char (*main_data)[MAD_BUFFER_MDLEN];
+  // unsigned char (*main_data)[MAD_BUFFER_MDLEN];
+  main_data_t *main_data;
+
 					/* Layer III main_data() */
   unsigned int md_len;			/* bytes in main_data */
 
@@ -848,7 +851,6 @@ struct mad_pcm {
   unsigned int samplerate;		/* sampling frequency (Hz) */
   unsigned short channels;		/* number of channels */
   unsigned short length;		/* number of samples per channel */
-  mad_fixed_t samples[2][1152];		/* PCM output samples [ch][sample] */
 };
 
 struct mad_synth {
@@ -905,6 +907,12 @@ enum mad_flow {
   MAD_FLOW_IGNORE   = 0x0020	/* ignore the current frame */
 };
 
+struct t_sync {
+  struct mad_stream stream;
+  struct mad_frame frame;
+  struct mad_synth synth;
+};
+
 struct mad_decoder {
   enum mad_decoder_mode mode;
 
@@ -916,11 +924,7 @@ struct mad_decoder {
     int out;
   } async;
 
-  struct {
-    struct mad_stream stream;
-    struct mad_frame frame;
-    struct mad_synth synth;
-  } *sync;
+  struct t_sync *sync;
 
   void *cb_data;
 

@@ -57,6 +57,7 @@ enum mad_error {
 };
 
 # define MAD_RECOVERABLE(error)	((error) & 0xff00)
+typedef unsigned char main_data_t[MAD_BUFFER_MDLEN];
 
 struct mad_stream {
   unsigned char const *buffer;		/* input bitstream buffer */
@@ -73,7 +74,8 @@ struct mad_stream {
   struct mad_bitptr anc_ptr;		/* ancillary bits pointer */
   unsigned int anc_bitlen;		/* number of ancillary bits */
 
-  unsigned char (*main_data)[MAD_BUFFER_MDLEN];
+  // unsigned char (*main_data)[MAD_BUFFER_MDLEN];
+  main_data_t *main_data;
 					/* Layer III main_data() */
   unsigned int md_len;			/* bytes in main_data */
 

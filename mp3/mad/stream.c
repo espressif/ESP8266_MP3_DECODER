@@ -30,6 +30,8 @@
 # include "bit.h"
 # include "stream.h"
 
+main_data_t MainData; //static alloc of decoder data
+
 /*
  * NAME:	stream->init()
  * DESCRIPTION:	initialize stream struct
@@ -63,10 +65,10 @@ void ICACHE_FLASH_ATTR mad_stream_init(struct mad_stream *stream)
  */
 void ICACHE_FLASH_ATTR mad_stream_finish(struct mad_stream *stream)
 {
-//  if (stream->main_data) {
+  if (stream->main_data) {
 //    free(stream->main_data);
-//    stream->main_data = 0;
-//  }
+    stream->main_data = 0;
+  }
 
   mad_bit_finish(&stream->anc_ptr);
   mad_bit_finish(&stream->ptr);

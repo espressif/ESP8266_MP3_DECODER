@@ -38,6 +38,36 @@ enum mad_flow {
   MAD_FLOW_IGNORE   = 0x0020	/* ignore the current frame */
 };
 
+ 
+struct sync_t {
+    struct mad_stream stream;	// definito main_data_t un array di circa 4K
+    struct mad_frame frame;
+    struct mad_synth synth;
+};
+
+// # define MAD_BUFFER_GUARD	8
+// # define MAD_BUFFER_MDLEN	(511 + 2048 + MAD_BUFFER_GUARD)
+// typedef unsigned char main_data_t[MAD_BUFFER_MDLEN];		 2567
+
+// in frame.h
+// struct mad_frame {
+//  struct mad_header header;		/* MPEG audio header */
+//
+//  int options;				/* decoding options (from stream) */
+//
+//  mad_fixed_t sbsample[2][36][32];	/* synthesis subband filter samples 9216 */
+//  mad_fixed_t (*overlap)[2][32][18];	/* Layer III block overlap data     4608 */
+//};
+//
+// in synth.h
+//struct mad_synth {
+//  mad_fixed_t filter[2][2][2][16][8];   /* polyphase filterbank outputs 4096 */
+//  				                      /* [ch][eo][peo][s][v]               */
+//
+//  unsigned int phase;			/* current processing phase */
+//  struct mad_pcm pcm;			/* PCM output */
+//};
+
 struct mad_decoder {
   enum mad_decoder_mode mode;
 
@@ -49,11 +79,15 @@ struct mad_decoder {
     int out;
   } async;
 
+/*
   struct {
     struct mad_stream stream;
     struct mad_frame frame;
     struct mad_synth synth;
   } *sync;
+
+*/
+  struct sync_t *sync;
 
   void *cb_data;
 

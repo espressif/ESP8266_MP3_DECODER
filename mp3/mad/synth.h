@@ -24,12 +24,12 @@
 
 # include "fixed.h"
 # include "frame.h"
+# include "lpc_io.h"
 
 struct mad_pcm {
   unsigned int samplerate;		/* sampling frequency (Hz) */
   unsigned short channels;		/* number of channels */
   unsigned short length;		/* number of samples per channel */
-  mad_fixed_t samples[2][1152];		/* PCM output samples [ch][sample] */
 };
 
 struct mad_synth {
