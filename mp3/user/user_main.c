@@ -19,25 +19,34 @@
 
 #include "mad.h"
 
-#define server_ip "192.168.40.115"
+//#define server_ip "192.168.40.115"
 //#define server_ip "192.168.1.5"
-//#define server_ip "192.168.4.100"
+#define server_ip "192.168.4.100"
 #define server_port 1234
 
 struct madPrivateData {
 	int fd;
 };
 
-void render_sample_block(short short_sample_buff, int no_samples) {
-	printf("render_sample_block\n");
+void render_sample_block(short *short_sample_buff, int no_samples) {
+	int i, s;
+//	char samp[]={0x00, 0x01, 0x11, 0x15, 0x55, 0x75, 0x77, 0xf7, 0xff};
+	for (i=0; i<no_samples; i++) {
+		s=short_sample_buff[i];
+//		putchar((s >> 0) & 0xff);
+		putchar((s >> 8) & 0xff);
+	}
+//	printf("render_sample_block\n");
 }
 
 void set_dac_sample_rate(int rate) {
-	printf("set_dac_sample_rate %d\n", rate);
+//	printf("set_dac_sample_rate %d\n", rate);
 }
 
+//#define READBUFSZ 2016
+#define READBUFSZ 5000
+static char readBuf[READBUFSZ]; //The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources.
 
-char readBuf[2016];
 static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *stream) {
 	int n, i=0;
 	int rem;
@@ -47,7 +56,7 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *str
 	memmove(readBuf, stream->next_frame, rem);
 	i=rem;
 
-	printf("C > Read from sock (%d bytes left in buff)\n", i);
+//	printf("C > Read from sock (%d bytes left in buff)\n", i);
 	while (i!=sizeof(readBuf)) {
 		n=read(p->fd, &readBuf[i], sizeof(readBuf)-i);
 		if (n==0) break;
@@ -57,7 +66,7 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *str
 		printf("C > End of stream!\n");
 		return MAD_FLOW_STOP;
 	}
-	printf("C > Read %d bytes.\n", i);
+//	printf("C > Read %d bytes.\n", i);
 	mad_stream_buffer(stream, readBuf, i);
 	return MAD_FLOW_CONTINUE;
 }
@@ -77,11 +86,11 @@ static inline signed int scale(mad_fixed_t sample) {
 }
 
 static enum mad_flow ICACHE_FLASH_ATTR output(void *data, struct mad_header const *header, struct mad_pcm *pcm) {
+#if 0
 	unsigned int nchannels, nsamples;
 	mad_fixed_t const *left_ch, *right_ch;
 
 	/* pcm->samplerate contains the sampling frequency */
-/*
 
 	nchannels = pcm->channels;
 	nsamples  = pcm->length;
@@ -102,7 +111,7 @@ static enum mad_flow ICACHE_FLASH_ATTR output(void *data, struct mad_header cons
 			 putchar((sample >> 8) & 0xff);
 		}
 	}
-*/
+#endif
 	 return MAD_FLOW_CONTINUE;
 }
 
@@ -172,6 +181,7 @@ void ICACHE_FLASH_ATTR
 user_init(void)
 {
 	UART_SetBaudrate(0, 115200);
+//	UART_SetBaudrate(0, 441000);
     printf("SDK version:%s\n", system_get_sdk_version());
 
     /* need to set opmode before you set config */
@@ -191,6 +201,6 @@ user_init(void)
         free(config);
     }
 
-    xTaskCreate(tskmad, "tskmad", 2048, NULL, 2, NULL);
+    xTaskCreate(tskmad, "tskmad", 2800, NULL, 2, NULL);
 }
 

@@ -387,7 +387,7 @@ mad_fixed_t const ca[8] = {
  * imdct_s[i /odd][k] = cos((PI / 24) * (2 * (6 + (i-1)/2) + 7) * (2 * k + 1))
  */
 static
-mad_fixed_t const ICACHE_RODATA_ATTR imdct_s[6][6] = {
+mad_fixed_t const imdct_s[6][6] = {
 # include "imdct_s.dat"
 };
 
@@ -975,8 +975,8 @@ enum mad_error ICACHE_FLASH_ATTR III_huffdecode(struct mad_bitptr *ptr, mad_fixe
 
     entry     = &mad_huff_pair_table[channel->table_select[region = 0]];
     table     = entry->table;
-    linbits   = unalShort(&entry->linbits);
-    startbits = unalShort(&entry->startbits);
+    linbits   = entry->linbits;
+    startbits = entry->startbits;
 
     if (table == 0)
       return MAD_ERROR_BADHUFFTABLE;
@@ -1005,8 +1005,8 @@ enum mad_error ICACHE_FLASH_ATTR III_huffdecode(struct mad_bitptr *ptr, mad_fixe
 
 	  entry     = &mad_huff_pair_table[channel->table_select[++region]];
 	  table     = entry->table;
-	  linbits   = unalShort(&entry->linbits);
-	  startbits = unalShort(&entry->startbits);
+	  linbits   = entry->linbits;
+	  startbits = entry->startbits;
 
 	  if (table == 0)
 	    return MAD_ERROR_BADHUFFTABLE;
