@@ -50,7 +50,7 @@
 # endif
 
 static
-union huffquad ICACHE_FLASH_ATTR const hufftabA[] = {
+union huffquad ICACHE_RODATA_ATTR const hufftabA[] = {
   /* 0000 */ PTR(16, 2),
   /* 0001 */ PTR(20, 2),
   /* 0010 */ PTR(24, 1),
@@ -90,7 +90,7 @@ union huffquad ICACHE_FLASH_ATTR const hufftabA[] = {
 };
 
 static
-union huffquad ICACHE_FLASH_ATTR const hufftabB[] = {
+union huffquad ICACHE_RODATA_ATTR const hufftabB[] = {
   /* 0000 */ V(1, 1, 1, 1, 4),
   /* 0001 */ V(1, 1, 1, 0, 4),
   /* 0010 */ V(1, 1, 0, 1, 4),
@@ -126,12 +126,12 @@ union huffquad ICACHE_FLASH_ATTR const hufftabB[] = {
 # endif
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab0[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab0[] = {
   /*      */ V(0, 0, 0)
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab1[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab1[] = {
   /* 000  */ V(1, 1, 3),
   /* 001  */ V(0, 1, 3),
   /* 010  */ V(1, 0, 2),
@@ -143,7 +143,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab1[] = {
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab2[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab2[] = {
   /* 000  */ PTR(8, 3),
   /* 001  */ V(1, 1, 3),
   /* 010  */ V(0, 1, 3),
@@ -165,7 +165,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab2[] = {
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab3[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab3[] = {
   /* 000  */ PTR(8, 3),
   /* 001  */ V(1, 0, 3),
   /* 010  */ V(1, 1, 2),
@@ -187,7 +187,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab3[] = {
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab5[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab5[] = {
   /* 000  */ PTR(8, 4),
   /* 001  */ V(1, 1, 3),
   /* 010  */ V(0, 1, 3),
@@ -221,7 +221,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab5[] = {
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab6[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab6[] = {
   /* 0000 */ PTR(16, 3),
   /* 0001 */ PTR(24, 1),
   /* 0010 */ PTR(26, 1),
@@ -259,7 +259,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab6[] = {
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab7[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab7[] = {
   /* 0000 */ PTR(16, 4),
   /* 0001 */ PTR(32, 4),
   /* 0010 */ PTR(48, 2),
@@ -346,7 +346,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab7[] = {
 /* this version saves 8 entries (16 bytes) at the expense of
    an extra lookup in 4 out of 36 cases */
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab8[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab8[] = {
   /* 0000 */ PTR(16, 4),
   /* 0001 */ PTR(32, 2),
   /* 0010 */ V(1, 2, 4),
@@ -424,7 +424,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab8[] = {
 };
 # else
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab8[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab8[] = {
   /* 0000 */ PTR(16, 4),
   /* 0001 */ PTR(32, 4),
   /* 0010 */ V(1, 2, 4),
@@ -509,7 +509,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab8[] = {
 # endif
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab9[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab9[] = {
   /* 0000 */ PTR(16, 4),
   /* 0001 */ PTR(32, 3),
   /* 0010 */ PTR(40, 2),
@@ -581,7 +581,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab9[] = {
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab10[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab10[] = {
   /* 0000 */ PTR(16, 4),
   /* 0001 */ PTR(32, 4),
   /* 0010 */ PTR(48, 2),
@@ -719,7 +719,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab10[] = {
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab11[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab11[] = {
   /* 0000 */ PTR(16, 4),
   /* 0001 */ PTR(32, 4),
   /* 0010 */ PTR(48, 4),
@@ -855,7 +855,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab11[] = {
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab12[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab12[] = {
   /* 0000 */ PTR(16, 4),
   /* 0001 */ PTR(32, 4),
   /* 0010 */ PTR(48, 4),
@@ -983,7 +983,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab12[] = {
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab13[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab13[] = {
   /* 0000 */ PTR(16, 4),
   /* 0001 */ PTR(32, 4),
   /* 0010 */ PTR(48, 4),
@@ -1509,7 +1509,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab13[] = {
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab15[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab15[] = {
   /* 0000 */ PTR(16, 4),
   /* 0001 */ PTR(32, 4),
   /* 0010 */ PTR(48, 4),
@@ -2017,7 +2017,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab15[] = {
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab16[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab16[] = {
   /* 0000 */ PTR(16, 4),
   /* 0001 */ PTR(32, 4),
   /* 0010 */ PTR(48, 4),
@@ -2551,7 +2551,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab16[] = {
 };
 
 static
-union huffpair ICACHE_FLASH_ATTR const hufftab24[] = {
+union huffpair ICACHE_RODATA_ATTR const hufftab24[] = {
   /* 0000 */ PTR(16, 4),
   /* 0001 */ PTR(32, 4),
   /* 0010 */ PTR(48, 4),
@@ -3073,7 +3073,7 @@ union huffpair ICACHE_FLASH_ATTR const hufftab24[] = {
 
 union huffquad const *const mad_huff_quad_table[2] = { hufftabA, hufftabB };
 
-struct hufftable const ICACHE_FLASH_ATTR mad_huff_pair_table[32] = {
+struct hufftable const ICACHE_RODATA_ATTR mad_huff_pair_table[32] = {
   /*  0 */ { hufftab0,   0, 0 },
   /*  1 */ { hufftab1,   0, 3 },
   /*  2 */ { hufftab2,   0, 3 },

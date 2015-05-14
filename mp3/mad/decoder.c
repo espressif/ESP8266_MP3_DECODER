@@ -322,7 +322,9 @@ int ICACHE_FLASH_ATTR run_sync(struct mad_decoder *decoder)
   struct mad_frame *frame;
   struct mad_synth *synth;
   int result = 0;
+  int r;
 
+	printf("run_sync\n");
   if (decoder->input_func == 0)
     return 0;
 
@@ -346,7 +348,9 @@ int ICACHE_FLASH_ATTR run_sync(struct mad_decoder *decoder)
   mad_stream_options(stream, decoder->options);
 
   do {
-    switch (decoder->input_func(decoder->cb_data, stream)) {
+	r=decoder->input_func(decoder->cb_data, stream);
+	printf("Input fn: %d\n", r);
+    switch (r) {
     case MAD_FLOW_STOP:
       goto done;
     case MAD_FLOW_BREAK:
@@ -373,9 +377,11 @@ int ICACHE_FLASH_ATTR run_sync(struct mad_decoder *decoder)
 # endif
 
       if (decoder->header_func) {
-	if (mad_header_decode(&frame->header, stream) == -1) {
-	  if (!MAD_RECOVERABLE(stream->error))
-	    break;
+	r=mad_header_decode(&frame->header, stream);
+	printf("mad_header_decode_func: %d\n", r);
+	if (r!=-1) {
+//	  if (!MAD_RECOVERABLE(stream->error))
+//	    break;
 
 	  switch (error_func(error_data, stream, frame)) {
 	  case MAD_FLOW_STOP:
@@ -401,9 +407,11 @@ int ICACHE_FLASH_ATTR run_sync(struct mad_decoder *decoder)
 	}
       }
 
-      if (mad_frame_decode(frame, stream) == -1) {
-	if (!MAD_RECOVERABLE(stream->error))
-	  break;
+      r=mad_frame_decode(frame, stream);
+	printf("mad_frame_decode: %d\n", r);
+      if (r == -1) {
+//	if (!MAD_RECOVERABLE(stream->error))
+//	  break;
 
 	switch (error_func(error_data, stream, frame)) {
 	case MAD_FLOW_STOP:
@@ -435,6 +443,7 @@ int ICACHE_FLASH_ATTR run_sync(struct mad_decoder *decoder)
 
       mad_synth_frame(synth, frame);
 
+	printf("Calling output fn\n");
       if (decoder->output_func) {
 	switch (decoder->output_func(decoder->cb_data,
 				     &frame->header, &synth->pcm)) {
@@ -534,6 +543,7 @@ int ICACHE_FLASH_ATTR mad_decoder_run(struct mad_decoder *decoder, enum mad_deco
 {
   int result;
   int (*run)(struct mad_decoder *) = 0;
+  static char *decsync[sizeof(*decoder->sync)];
 
   switch (decoder->mode = mode) {
   case MAD_DECODER_MODE_SYNC:
@@ -550,7 +560,8 @@ int ICACHE_FLASH_ATTR mad_decoder_run(struct mad_decoder *decoder, enum mad_deco
   if (run == 0)
     return -1;
 
-  decoder->sync = malloc(sizeof(*decoder->sync));
+//  decoder->sync = malloc(sizeof(*decoder->sync));
+  decoder->sync=(void*)decsync;
   if (decoder->sync == 0)
     return -1;
 

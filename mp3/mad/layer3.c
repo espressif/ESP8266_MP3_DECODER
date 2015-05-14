@@ -44,6 +44,7 @@
 # include "frame.h"
 # include "huffman.h"
 # include "layer3.h"
+#include "align.h"
 
 /* --- Layer III ----------------------------------------------------------- */
 
@@ -106,7 +107,7 @@ struct {
  * derived from section 2.4.3.2 of ISO/IEC 13818-3
  */
 static
-unsigned char const ICACHE_RODATA_ATTR nsfb_table[6][3][4] = {
+unsigned char const nsfb_table[6][3][4] = {
   { {  6,  5,  5, 5 },
     {  9,  9,  9, 9 },
     {  6,  9,  9, 9 } },
@@ -320,7 +321,7 @@ struct {
  * derived from Table B.6 of ISO/IEC 11172-3
  */
 static
-unsigned char const ICACHE_RODATA_ATTR pretab[22] = {
+unsigned char const pretab[22] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 3, 3, 3, 2, 0
 };
 
@@ -344,7 +345,7 @@ struct fixedfloat {
  * root_table[3 + x] = 2^(x/4)
  */
 static
-mad_fixed_t const ICACHE_RODATA_ATTR root_table[7] = {
+mad_fixed_t const root_table[7] = {
   MAD_F(0x09837f05) /* 2^(-3/4) == 0.59460355750136 */,
   MAD_F(0x0b504f33) /* 2^(-2/4) == 0.70710678118655 */,
   MAD_F(0x0d744fcd) /* 2^(-1/4) == 0.84089641525371 */,
@@ -363,7 +364,7 @@ mad_fixed_t const ICACHE_RODATA_ATTR root_table[7] = {
  * ca[i] = c[i] / sqrt(1 + c[i]^2)
  */
 static
-mad_fixed_t const ICACHE_RODATA_ATTR cs[8] = {
+mad_fixed_t const cs[8] = {
   +MAD_F(0x0db84a81) /* +0.857492926 */, +MAD_F(0x0e1b9d7f) /* +0.881741997 */,
   +MAD_F(0x0f31adcf) /* +0.949628649 */, +MAD_F(0x0fbba815) /* +0.983314592 */,
   +MAD_F(0x0feda417) /* +0.995517816 */, +MAD_F(0x0ffc8fc8) /* +0.999160558 */,
@@ -371,7 +372,7 @@ mad_fixed_t const ICACHE_RODATA_ATTR cs[8] = {
 };
 
 static
-mad_fixed_t const ICACHE_RODATA_ATTR ca[8] = {
+mad_fixed_t const ca[8] = {
   -MAD_F(0x083b5fe7) /* -0.514495755 */, -MAD_F(0x078c36d2) /* -0.471731969 */,
   -MAD_F(0x05039814) /* -0.313377454 */, -MAD_F(0x02e91dd1) /* -0.181913200 */,
   -MAD_F(0x0183603a) /* -0.094574193 */, -MAD_F(0x00a7cb87) /* -0.040965583 */,
@@ -398,7 +399,7 @@ mad_fixed_t const ICACHE_RODATA_ATTR imdct_s[6][6] = {
  * window_l[i] = sin((PI / 36) * (i + 1/2))
  */
 static
-mad_fixed_t const ICACHE_RODATA_ATTR window_l[36] = {
+mad_fixed_t const window_l[36] = {
   MAD_F(0x00b2aa3e) /* 0.043619387 */, MAD_F(0x0216a2a2) /* 0.130526192 */,
   MAD_F(0x03768962) /* 0.216439614 */, MAD_F(0x04cfb0e2) /* 0.300705800 */,
   MAD_F(0x061f78aa) /* 0.382683432 */, MAD_F(0x07635284) /* 0.461748613 */,
@@ -429,7 +430,7 @@ mad_fixed_t const ICACHE_RODATA_ATTR window_l[36] = {
  * window_s[i] = sin((PI / 12) * (i + 1/2))
  */
 static
-mad_fixed_t const  ICACHE_RODATA_ATTR window_s[12] = {
+mad_fixed_t const  window_s[12] = {
   MAD_F(0x0216a2a2) /* 0.130526192 */, MAD_F(0x061f78aa) /* 0.382683432 */,
   MAD_F(0x09bd7ca0) /* 0.608761429 */, MAD_F(0x0cb19346) /* 0.793353340 */,
   MAD_F(0x0ec835e8) /* 0.923879533 */, MAD_F(0x0fdcf549) /* 0.991444861 */,
@@ -446,7 +447,7 @@ mad_fixed_t const  ICACHE_RODATA_ATTR window_s[12] = {
  * is_table[i] = is_ratio[i] / (1 + is_ratio[i])
  */
 static
-mad_fixed_t const ICACHE_RODATA_ATTR is_table[7] = {
+mad_fixed_t const  is_table[7] = {
   MAD_F(0x00000000) /* 0.000000000 */,
   MAD_F(0x0361962f) /* 0.211324865 */,
   MAD_F(0x05db3d74) /* 0.366025404 */,
@@ -464,7 +465,7 @@ mad_fixed_t const ICACHE_RODATA_ATTR is_table[7] = {
  * is_lsf_table[1][i] = (1 /      sqrt(2)) ^(i + 1)
  */
 static
-mad_fixed_t const ICACHE_RODATA_ATTR is_lsf_table[2][15] = {
+mad_fixed_t const is_lsf_table[2][15] = {
   {
     MAD_F(0x0d744fcd) /* 0.840896415 */,
     MAD_F(0x0b504f33) /* 0.707106781 */,
@@ -719,8 +720,8 @@ unsigned int ICACHE_FLASH_ATTR III_scalefactors(struct mad_bitptr *ptr, struct c
 
   start = *ptr;
 
-  slen1 = sflen_table[channel->scalefac_compress].slen1;
-  slen2 = sflen_table[channel->scalefac_compress].slen2;
+  slen1 = unalChar(&sflen_table[channel->scalefac_compress].slen1);
+  slen2 = unalChar(&sflen_table[channel->scalefac_compress].slen2);
 
   if (channel->block_type == 2) {
     unsigned int nsfb;
@@ -836,7 +837,7 @@ void ICACHE_FLASH_ATTR III_exponents(struct channel const *channel,
 	  (signed int) ((channel->scalefac[sfbi] + (pretab[sfbi] & premask)) <<
 			scalefac_multiplier);
 
-	l += sfbwidth[sfbi++];
+	l += unalChar(&sfbwidth[sfbi++]);
       }
     }
 
@@ -854,7 +855,7 @@ void ICACHE_FLASH_ATTR III_exponents(struct channel const *channel,
       exponents[sfbi + 2] = gain2 -
 	(signed int) (channel->scalefac[sfbi + 2] << scalefac_multiplier);
 
-      l    += 3 * sfbwidth[sfbi];
+      l    += 3 * unalChar(&sfbwidth[sfbi]);
       sfbi += 3;
     }
   }
@@ -969,13 +970,13 @@ enum mad_error ICACHE_FLASH_ATTR III_huffdecode(struct mad_bitptr *ptr, mad_fixe
     unsigned int linbits, startbits, big_values, reqhits;
     mad_fixed_t reqcache[16];
 
-    sfbound = xrptr + *sfbwidth++;
+    sfbound = xrptr + unalChar(sfbwidth++);
     rcount  = channel->region0_count + 1;
 
     entry     = &mad_huff_pair_table[channel->table_select[region = 0]];
     table     = entry->table;
-    linbits   = entry->linbits;
-    startbits = entry->startbits;
+    linbits   = unalShort(&entry->linbits);
+    startbits = unalShort(&entry->startbits);
 
     if (table == 0)
       return MAD_ERROR_BADHUFFTABLE;
@@ -992,7 +993,7 @@ enum mad_error ICACHE_FLASH_ATTR III_huffdecode(struct mad_bitptr *ptr, mad_fixe
       register mad_fixed_t requantized;
 
       if (xrptr == sfbound) {
-	sfbound += *sfbwidth++;
+	sfbound += unalChar(sfbwidth++);
 
 	/* change table if region boundary */
 
@@ -1004,8 +1005,8 @@ enum mad_error ICACHE_FLASH_ATTR III_huffdecode(struct mad_bitptr *ptr, mad_fixe
 
 	  entry     = &mad_huff_pair_table[channel->table_select[++region]];
 	  table     = entry->table;
-	  linbits   = entry->linbits;
-	  startbits = entry->startbits;
+	  linbits   = unalShort(&entry->linbits);
+	  startbits = unalShort(&entry->startbits);
 
 	  if (table == 0)
 	    return MAD_ERROR_BADHUFFTABLE;
@@ -1191,7 +1192,7 @@ enum mad_error ICACHE_FLASH_ATTR III_huffdecode(struct mad_bitptr *ptr, mad_fixe
       cachesz -= quad->value.hlen;
 
       if (xrptr == sfbound) {
-	sfbound += *sfbwidth++;
+	sfbound += unalChar(sfbwidth++);
 
 	if (exp != *expptr) {
 	  exp = *expptr;
@@ -1214,7 +1215,7 @@ enum mad_error ICACHE_FLASH_ATTR III_huffdecode(struct mad_bitptr *ptr, mad_fixe
       xrptr += 2;
 
       if (xrptr == sfbound) {
-	sfbound += *sfbwidth++;
+	sfbound += unalChar(sfbwidth++);
 
 	if (exp != *expptr) {
 	  exp = *expptr;
@@ -1292,7 +1293,7 @@ void ICACHE_FLASH_ATTR III_reorder(mad_fixed_t xr[576], struct channel const *ch
 
     l = 0;
     while (l < 36)
-      l += *sfbwidth++;
+      l += unalChar(sfbwidth++);
   }
 
   for (w = 0; w < 3; ++w) {
@@ -1300,12 +1301,12 @@ void ICACHE_FLASH_ATTR III_reorder(mad_fixed_t xr[576], struct channel const *ch
     sw[w]  = 0;
   }
 
-  f = *sfbwidth++;
+  f = unalChar(sfbwidth++);
   w = 0;
 
   for (l = 18 * sb; l < 576; ++l) {
     if (f-- == 0) {
-      f = *sfbwidth++ - 1;
+      f = unalChar(sfbwidth++) - 1;
       w = (w + 1) % 3;
     }
 
@@ -1362,7 +1363,7 @@ enum mad_error ICACHE_FLASH_ATTR III_stereo(mad_fixed_t xr[2][576],
 
       if (right_ch->flags & mixed_block_flag) {
 	while (l < 36) {
-	  n = sfbwidth[sfbi++];
+	  n = unalChar(&sfbwidth[sfbi++]);
 
 	  for (i = 0; i < n; ++i) {
 	    if (right_xr[i]) {
@@ -1380,7 +1381,7 @@ enum mad_error ICACHE_FLASH_ATTR III_stereo(mad_fixed_t xr[2][576],
 
       w = 0;
       while (l < 576) {
-	n = sfbwidth[sfbi++];
+	n = unalChar(&sfbwidth[sfbi++]);
 
 	for (i = 0; i < n; ++i) {
 	  if (right_xr[i]) {
@@ -1417,7 +1418,7 @@ enum mad_error ICACHE_FLASH_ATTR III_stereo(mad_fixed_t xr[2][576],
 
       bound = 0;
       for (sfbi = l = 0; l < 576; l += n) {
-	n = sfbwidth[sfbi++];
+	n = unalChar(&sfbwidth[sfbi++]);
 
 	for (i = 0; i < n; ++i) {
 	  if (right_xr[i]) {
@@ -1443,7 +1444,7 @@ enum mad_error ICACHE_FLASH_ATTR III_stereo(mad_fixed_t xr[2][576],
       lsf_scale = is_lsf_table[right_ch->scalefac_compress & 0x1];
 
       for (sfbi = l = 0; l < 576; ++sfbi, l += n) {
-	n = sfbwidth[sfbi];
+	n = unalChar(&sfbwidth[sfbi]);
 
 	if (!(modes[sfbi] & I_STEREO))
 	  continue;
@@ -1479,7 +1480,7 @@ enum mad_error ICACHE_FLASH_ATTR III_stereo(mad_fixed_t xr[2][576],
     }
     else {  /* !(header->flags & MAD_FLAG_LSF_EXT) */
       for (sfbi = l = 0; l < 576; ++sfbi, l += n) {
-	n = sfbwidth[sfbi];
+	n = unalChar(&sfbwidth[sfbi]);
 
 	if (!(modes[sfbi] & I_STEREO))
 	  continue;
@@ -1513,7 +1514,7 @@ enum mad_error ICACHE_FLASH_ATTR III_stereo(mad_fixed_t xr[2][576],
     invsqrt2 = root_table[3 + -2];
 
     for (sfbi = l = 0; l < 576; ++sfbi, l += n) {
-      n = sfbwidth[sfbi];
+      n = unalChar(&sfbwidth[sfbi]);
 
       if (modes[sfbi] != MS_STEREO)
 	continue;
@@ -2384,10 +2385,10 @@ enum mad_error ICACHE_FLASH_ATTR III_decode(struct mad_bitptr *ptr, struct mad_f
       struct channel *channel = &granule->ch[ch];
       unsigned int part2_length;
 
-      sfbwidth[ch] = sfbwidth_table[sfreqi].l;
+      sfbwidth[ch] =  sfbwidth_table[sfreqi].l;
       if (channel->block_type == 2) {
 	sfbwidth[ch] = (channel->flags & mixed_block_flag) ?
-	  sfbwidth_table[sfreqi].m : sfbwidth_table[sfreqi].s;
+	   sfbwidth_table[sfreqi].m :  sfbwidth_table[sfreqi].s;
       }
 
       if (header->flags & MAD_FLAG_LSF_EXT) {
@@ -2522,10 +2523,14 @@ int ICACHE_FLASH_ATTR mad_layer_III(struct mad_stream *stream, struct mad_frame 
   struct mad_bitptr ptr;
   struct sideinfo si;
   enum mad_error error;
-  int result = 0;
+  int result = 0, i;
+  static char madbuff[MAD_BUFFER_MDLEN];
+  static mad_fixed_t ovlbuf[2 * 32 * 18];
 
   /* allocate Layer III dynamic structures */
-
+    stream->main_data=(void*)madbuff;
+    frame->overlap=(void*)ovlbuf;
+/*
   if (stream->main_data == 0) {
     stream->main_data = malloc(MAD_BUFFER_MDLEN);
     if (stream->main_data == 0) {
@@ -2541,6 +2546,7 @@ int ICACHE_FLASH_ATTR mad_layer_III(struct mad_stream *stream, struct mad_frame 
       return -1;
     }
   }
+*/
 
   nch = MAD_NCHANNELS(header);
   si_len = (header->flags & MAD_FLAG_LSF_EXT) ?

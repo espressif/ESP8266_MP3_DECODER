@@ -19,9 +19,9 @@
 
 #include "mad.h"
 
-//#define server_ip "192.168.40.115"
+#define server_ip "192.168.40.115"
 //#define server_ip "192.168.1.5"
-#define server_ip "192.168.4.100"
+//#define server_ip "192.168.4.100"
 #define server_port 1234
 
 struct madPrivateData {
@@ -29,15 +29,28 @@ struct madPrivateData {
 };
 
 
-char readBuf[4096];
+char readBuf[2016];
 static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *stream) {
-	int n;
+	int n, i=0;
+	int rem;
 	struct madPrivateData *p = (struct madPrivateData*)data;
-	printf("C > Read from sock\n");
-	n=read(p->fd, readBuf, sizeof(readBuf));
-	printf("C > Read %d bytes.\n", n);
-	if (n==0) return MAD_FLOW_STOP;
-	mad_stream_buffer(stream, readBuf, n);
+	//Shift remaining contents of buf to the front
+	rem=stream->bufend-stream->next_frame;
+	memmove(readBuf, stream->next_frame, rem);
+	i=rem;
+
+	printf("C > Read from sock (%d bytes left in buff)\n", i);
+	while (i!=sizeof(readBuf)) {
+		n=read(p->fd, &readBuf[i], sizeof(readBuf)-i);
+		if (n==0) break;
+		i=i+n;
+	}
+	if (i==0) {
+		printf("C > End of stream!\n");
+		return MAD_FLOW_STOP;
+	}
+	printf("C > Read %d bytes.\n", i);
+	mad_stream_buffer(stream, readBuf, i);
 	return MAD_FLOW_CONTINUE;
 }
 
@@ -142,13 +155,7 @@ void ICACHE_FLASH_ATTR tskmad(void *pvParameters)
 			   error, 0 /* message */);
 		mad_decoder_run(&decoder, MAD_DECODER_MODE_SYNC);
 		mad_decoder_finish(&decoder);
-
-//        char *recv_buf = (char *)zalloc(128);
-  //      while ((recbytes = read(sta_socket , recv_buf, 128)) > 0) {
-
-        if (recbytes <= 0) {
-            printf("C > read data fail!\n");
-        }
+	        printf("C > Decode done.\n");
     }
 }
 
