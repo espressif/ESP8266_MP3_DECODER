@@ -33,19 +33,22 @@ struct madPrivateData {
 	int buffPos;
 };
 
-#define printf(a, ...) while(0)
+//#define printf(a, ...) while(0)
 
 struct madPrivateData madParms;
 
 void render_sample_block(short *short_sample_buff, int no_samples) {
 	int i, s;
-	char samp[]={0x00, 0x01, 0x11, 0x15, 0x55, 0x75, 0x77, 0xf7, 0xff};
+//	char samp[]={0x00, 0x01, 0x11, 0x15, 0x55, 0x75, 0x77, 0xf7, 0xff};
 	for (i=0; i<no_samples; i++) {
 		s=short_sample_buff[i];
 //		putchar((s >> 0) & 0xff);
 //		putchar((s >> 8) & 0xff);
+//		uart_tx_one_char(0, (s >> 8) & 0xff);
+//		uart_tx_one_char(0, (s >> 0) & 0xff);
+//		printf("%04X", s);
 	}
-//	printf("render_sample_block\n");
+	printf("render_sample_block %04x %04x\n", short_sample_buff[0], short_sample_buff[1]);
 }
 
 void set_dac_sample_rate(int rate) {
@@ -56,13 +59,12 @@ void set_dac_sample_rate(int rate) {
 static char readBuf[READBUFSZ]; //The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
 
 static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *stream) {
-	int n, i=0;
+	int n, i;
 	int rem, canRead;
 	struct madPrivateData *p = (struct madPrivateData*)data;
 	//Shift remaining contents of buf to the front
 	rem=stream->bufend-stream->next_frame;
 	memmove(readBuf, stream->next_frame, rem);
-	i=rem;
 
 	//Wait until there is enough data in the buffer. This only happens when the data feed rate is too low, and shouldn't normally be needed!
 	do {
@@ -74,13 +76,18 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *str
 			vTaskDelay(300/portTICK_RATE_MS);
 		}
 	} while (!canRead);
+
+
 	//Read in bytes from buffer
 	xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
-	memcpy(&readBuf[rem], p->buff, sizeof(readBuf)-rem);
+	n=sizeof(readBuf)-rem; //amount of bytes to re-fill the buffer with
+	memcpy(&readBuf[rem], p->buff, n);
 	//Shift remaining contents of readBuff to the front
-	memmove(p->buff, &p->buff[sizeof(readBuf)-rem], sizeof(p->buff)-(sizeof(readBuf)-rem));
-	p->buffPos-=(sizeof(readBuf)-rem);
+	memmove(p->buff, &p->buff[n], sizeof(p->buff)-n);
+	p->buffPos-=n;
 	xSemaphoreGive(p->muxBufferBusy);
+
+	for (i=0; i<16; i++) printf("%02X ", readBuf[i]);
 
 	//Let reader thread read more data.
 	xSemaphoreGive(p->semNeedRead);
@@ -222,8 +229,8 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 	free(config);
 	printf("Connection thread done.\n");
 
-	xTaskCreate(tskreader, "tskreader", 300, NULL, 11, NULL);
-	xTaskCreate(tskmad, "tskmad", 2300, NULL, 3, NULL);
+	xTaskCreate(tskreader, "tskreader", 250, NULL, 11, NULL);
+	xTaskCreate(tskmad, "tskmad", 2200, NULL, 3, NULL);
 	vTaskDelete(NULL);
 }
 

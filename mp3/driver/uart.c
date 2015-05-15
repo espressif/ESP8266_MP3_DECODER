@@ -24,7 +24,7 @@ typedef struct _os_event_ {
 xTaskHandle xUartTaskHandle;
 xQueueHandle xQueueUart;
 
-LOCAL STATUS
+STATUS
 uart_tx_one_char(uint8 uart, uint8 TxChar)
 {
     while (true) {
