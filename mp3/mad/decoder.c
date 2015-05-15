@@ -324,7 +324,7 @@ int ICACHE_FLASH_ATTR run_sync(struct mad_decoder *decoder)
   int result = 0;
   int r;
 
-	printf("run_sync\n");
+//	printf("run_sync\n");
   if (decoder->input_func == 0)
     return 0;
 
