@@ -26,17 +26,17 @@ layer3: 744 bytes rodata
 */
 
 
-#define server_ip "192.168.40.115"
-//#define server_ip "192.168.1.5"
+//#define server_ip "192.168.40.115"
+#define server_ip "192.168.1.4"
 //#define server_ip "192.168.4.100"
 #define server_port 1234
 
-#define READER_THREAD
-//#define UART_AUDIO
+//#define READER_THREAD
+#define UART_AUDIO
 //#define FROMFLASH
 
-
-
+#define READERBUFSIZE 5100
+#define READCHUNKSIZE 256
 
 #ifdef FROMFLASH
 char ICACHE_RODATA_ATTR mp3data[]={
@@ -49,7 +49,7 @@ struct madPrivateData {
 	xSemaphoreHandle muxBufferBusy;
 	xSemaphoreHandle semNeedRead;
 #ifdef READER_THREAD
-	char buff[2016];
+	char buff[READERBUFSIZE];
 	int buffPos;
 #endif
 #ifdef FROMFLASH
@@ -77,7 +77,7 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 		err=s-((s>>14)<<14);
 	}
 #endif
-	printf("rsb %04x %04x\n", short_sample_buff[0], short_sample_buff[1]);
+//	printf("rsb %04x %04x\n", short_sample_buff[0], short_sample_buff[1]);
 }
 
 void set_dac_sample_rate(int rate) {
@@ -85,7 +85,7 @@ void set_dac_sample_rate(int rate) {
 }
 
 //The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
-#define READBUFSZ 2016
+#define READBUFSZ 2106
 static char readBuf[READBUFSZ]; 
 
 void ICACHE_FLASH_ATTR memcpyAligned(char *dst, char *src, int len) {
@@ -115,11 +115,11 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *str
 	//Wait until there is enough data in the buffer. This only happens when the data feed rate is too low, and shouldn't normally be needed!
 	do {
 		xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
-		canRead=(p->buffPos>=(sizeof(readBuf)-rem));
+		canRead=((p->buffPos)>=(sizeof(readBuf)-rem));
 		xSemaphoreGive(p->muxBufferBusy);
 		if (!canRead) {
-			printf("Buf uflow\n");
-			vTaskDelay(500/portTICK_RATE_MS);
+			printf("Buf uflow %d < %d \n", (p->buffPos), (sizeof(readBuf)-rem));
+			vTaskDelay(100/portTICK_RATE_MS);
 		}
 	} while (!canRead);
 
@@ -132,8 +132,6 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *str
 	memmove(p->buff, &p->buff[n], sizeof(p->buff)-n);
 	p->buffPos-=n;
 	xSemaphoreGive(p->muxBufferBusy);
-
-	for (i=0; i<16; i++) printf("%02X ", readBuf[i]);
 
 	//Let reader thread read more data.
 	xSemaphoreGive(p->semNeedRead);
@@ -178,8 +176,8 @@ int openConn() {
 		}
 		n=1;
 		setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &n, sizeof(n));
-//		n=1024;
-//		setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &n, sizeof(n));
+		n=4096;
+		setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &n, sizeof(n));
 		bzero(&remote_ip, sizeof(struct sockaddr_in));
 		remote_ip.sin_family = AF_INET;
 		remote_ip.sin_addr.s_addr = inet_addr(server_ip);
@@ -217,15 +215,18 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 	p->fd=-1;
 	while(1) {
 		if (p->fd==-1) p->fd=openConn();
+		printf("Resuming read, can read %d bytes...\n", sizeof(p->buff)-p->buffPos);
 		while (p->buffPos!=sizeof(p->buff)) {
 			//Wait for more data
-//			printf("Doing select...\n");
 			FD_ZERO(&fdsRead);
 			FD_SET(p->fd, &fdsRead);
 			lwip_select(p->fd+1, &fdsRead, NULL, NULL, NULL);
 			//Take buffer mux and read data.
 			xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
-			n=read(p->fd, &p->buff[p->buffPos], sizeof(p->buff)-p->buffPos);
+
+			n=READCHUNKSIZE;
+			if (n>sizeof(p->buff)-p->buffPos) n=sizeof(p->buff)-p->buffPos;
+			n=read(p->fd, &p->buff[p->buffPos], n);
 			if (n<=0) {
 				close(p->fd);
 				p->fd=-1;
@@ -255,17 +256,17 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 
 	struct station_config *config=malloc(sizeof(struct station_config));
 	memset(config, 0x00, sizeof(struct station_config));
-	sprintf(config->ssid, "wifi-2");
-	sprintf(config->password, "thesumof6+6=12");
-//	sprintf(config->ssid, "Sprite");
-//	sprintf(config->password, "pannenkoek");
+//	sprintf(config->ssid, "wifi-2");
+//	sprintf(config->password, "thesumof6+6=12");
+	sprintf(config->ssid, "Sprite");
+	sprintf(config->password, "pannenkoek");
 	wifi_station_set_config(config);
 	wifi_station_connect();
 	free(config);
 //	printf("Connection thread done.\n");
 
 	//tskMad seems to need at least 2450 bytes of RAM.
-	if (xTaskCreate(tskmad, "tskmad", 2450, NULL, 3, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task!\n");
+	if (xTaskCreate(tskmad, "tskmad", 2450, NULL, 12, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task!\n");
 #ifdef READER_THREAD
 	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 11, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
 #endif
@@ -278,7 +279,7 @@ void ICACHE_FLASH_ATTR
 user_init(void)
 {
 #ifdef UART_AUDIO
-	UART_SetBaudrate(0, 441000);
+	UART_SetBaudrate(0, 481000);
 #else
 	UART_SetBaudrate(0, 115200);
 #endif

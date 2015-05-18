@@ -1,0 +1,6 @@
+Vdd
+Int
+RST
+SCL
+SDA
+GND
