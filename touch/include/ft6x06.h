@@ -1,3 +1,8 @@
+#ifndef FT6X06_H
+#define FT6X06_H
+
+#include "esp_common.h"
+
 
 #define FT6206_ADDR				0x38
 #define FT6206_G_FT5201ID		0xA8
@@ -27,3 +32,9 @@
 #define FT6206_REG_VENDID		0xA8
 
 #define FT6206_DEFAULT_THRESHOLD 128
+
+int ICACHE_FLASH_ATTR ft6x06Init();
+void ICACHE_FLASH_ATTR ft6x06SetSens(int sens);
+int ICACHE_FLASH_ATTR ft6x06GetTouch(int *x, int *y);
+
+#endif
