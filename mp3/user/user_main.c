@@ -31,9 +31,10 @@ layer3: 744 bytes rodata
 //#define server_ip "192.168.4.100"
 #define server_port 1234
 
-//#define READER_THREAD
-#define UART_AUDIO
+#define READER_THREAD
+//#define UART_AUDIO
 //#define FROMFLASH
+#define SPI_BUFFER
 
 #define READERBUFSIZE 5100
 #define READCHUNKSIZE 256
@@ -60,6 +61,79 @@ struct madPrivateData {
 #ifdef UART_AUDIO
 #define printf(a, ...) while(0)
 #endif
+
+#ifdef SPI_BUFFER
+
+#define SPI 			0
+#define HSPI			1
+
+
+void spiRamInit() {
+	 //hspi overlap to spi, two spi masters on cspi
+	//#define HOST_INF_SEL 0x3ff00028 
+	SET_PERI_REG_MASK(0x3ff00028, BIT(7));
+	//SET_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
+
+	//set higher priority for spi than hspi
+	SET_PERI_REG_MASK(SPI_EXT3(SPI), 0x1);
+	SET_PERI_REG_MASK(SPI_EXT3(HSPI), 0x3);
+	SET_PERI_REG_MASK(SPI_USER(HSPI), BIT(5));
+
+	//select HSPI CS2 ,disable HSPI CS0 and CS1
+	CLEAR_PERI_REG_MASK(SPI_PIN(HSPI), SPI_CS2_DIS);
+	SET_PERI_REG_MASK(SPI_PIN(HSPI), SPI_CS0_DIS |SPI_CS1_DIS);
+
+	//SET IO MUX FOR GPIO0 , SELECT PIN FUNC AS SPI CS2
+	//IT WORK AS HSPI CS2 AFTER OVERLAP(THERE IS NO PIN OUT FOR NATIVE HSPI CS1/2)
+	PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_SPICS2);
+
+	WRITE_PERI_REG(SPI_CLOCK(HSPI), 
+					(((7)&SPI_CLKDIV_PRE)<<SPI_CLKDIV_PRE_S)|
+					(((4)&SPI_CLKCNT_N)<<SPI_CLKCNT_N_S)|
+					(((4)&SPI_CLKCNT_H)<<SPI_CLKCNT_H_S)|
+					(((2)&SPI_CLKCNT_L)<<SPI_CLKCNT_L_S));
+}
+
+#define SPI_W(i, j)                   (REG_SPI_BASE(i) + 0x40 + ((j)*4))
+
+
+//n=1..64
+void spiRamRead(int addr, char *buff, int len) {
+	int i;
+	int *p=(int*)buff;
+	SET_PERI_REG_MASK(SPI_USER(HSPI), SPI_CS_SETUP|SPI_CS_HOLD|SPI_USR_COMMAND|SPI_USR_ADDR|SPI_USR_MISO);
+	CLEAR_PERI_REG_MASK(SPI_USER(HSPI), SPI_FLASH_MODE|SPI_USR_MOSI);
+	WRITE_PERI_REG(SPI_USER1(HSPI), ((0&SPI_USR_MOSI_BITLEN)<<SPI_USR_MOSI_BITLEN_S)| //no data out
+			((((8*len)-1)&SPI_USR_MISO_BITLEN)<<SPI_USR_MISO_BITLEN_S)| //len bits of data in
+			((23&SPI_USR_ADDR_BITLEN)<<SPI_USR_ADDR_BITLEN_S)); //address is 24 bits A0-A23
+	WRITE_PERI_REG(SPI_USER2(HSPI), (((7&SPI_USR_COMMAND_BITLEN)<<SPI_USR_COMMAND_BITLEN_S) | 0x03));
+	SET_PERI_REG_MASK(SPI_CMD(HSPI), SPI_USR);
+	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
+	for (i=0; i<(len+3)/4; i++) {
+		p[i]=READ_PERI_REG(SPI_W(HSPI, i));
+	}
+}
+
+//n=1..64
+void spiRamWrite(int addr, char *buff, int len) {
+	int i;
+	int *p=(int*)buff;
+	SET_PERI_REG_MASK(SPI_USER(HSPI), SPI_CS_SETUP|SPI_CS_HOLD|SPI_USR_COMMAND|SPI_USR_ADDR|SPI_USR_MOSI);
+	CLEAR_PERI_REG_MASK(SPI_USER(HSPI), SPI_FLASH_MODE|SPI_USR_MISO);
+	WRITE_PERI_REG(SPI_USER1(HSPI), ((((8*len)-1)&SPI_USR_MOSI_BITLEN)<<SPI_USR_MOSI_BITLEN_S)| //len bitsbits of data out
+			((0&SPI_USR_MISO_BITLEN)<<SPI_USR_MISO_BITLEN_S)| //no data in
+			((23&SPI_USR_ADDR_BITLEN)<<SPI_USR_ADDR_BITLEN_S)); //address is 24 bits A0-A23
+	WRITE_PERI_REG(SPI_ADDR(HSPI), addr<<8); //write address
+	WRITE_PERI_REG(SPI_USER2(HSPI), (((7&SPI_USR_COMMAND_BITLEN)<<SPI_USR_COMMAND_BITLEN_S) | 0x02));
+	for (i=0; i<(len+3)/4; i++) {
+		WRITE_PERI_REG(SPI_W(HSPI, (i)), p[i]);
+	}
+	SET_PERI_REG_MASK(SPI_CMD(HSPI), SPI_USR);
+	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
+}
+
+#endif
+
 
 struct madPrivateData madParms;
 
@@ -273,6 +347,28 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 	vTaskDelete(NULL);
 }
 
+void ICACHE_FLASH_ATTR tskspitst(void *pvParameters) {
+	int a[4];
+#ifdef SPI_BUFFER
+	spiRamInit();
+	printf("SPI ram INITED\n");
+	while(1) {
+		a[0]=0xdeadbeef;
+		a[1]=0xcafebabe;
+		a[2]=0x12345678;
+		a[3]=0xaa55aa55;
+		printf("Before: %x %x %x %x\n", a[0], a[1], a[2], a[3]);
+//		spiRamWrite(0x10, (char*)a, 8);
+//		spiRamWrite(0x18, (char*)&a[2], 8);
+		spiRamWrite(0, (char*)a, 16);
+		spiRamRead(0, (char*)a, 16);
+		printf("After: %x %x %x %x\n", a[0], a[1], a[2], a[3]);
+		vTaskDelay(500/portTICK_RATE_MS);
+	}
+#endif
+
+
+}
 
 
 void ICACHE_FLASH_ATTR
@@ -291,6 +387,9 @@ user_init(void)
 	vSemaphoreCreateBinary(madParms.semNeedRead);
 //	printf("Starting tasks...\n");
 	xTaskCreate(tskconnect, "tskconnect", 200, NULL, 3, NULL);
+
+
+	if (xTaskCreate(tskspitst, "tskspitst", 230, NULL, 11, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
 
 }
 
