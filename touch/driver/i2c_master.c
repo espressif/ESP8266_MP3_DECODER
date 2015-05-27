@@ -55,10 +55,18 @@ LOCAL uint8 ICACHE_FLASH_ATTR
 i2c_master_getDC(void)
 {
     uint8 sda_out;
-//    sda_out = (gpio_input_get()&(1<<(GPIO_ID_PIN(I2C_MASTER_SDA_GPIO))))?1:0;
     sda_out = (gpio_input_get()&(1<<I2C_MASTER_SDA_GPIO))?1:0;
     return sda_out;
 }
+
+LOCAL uint8 ICACHE_FLASH_ATTR
+i2c_master_getScl(void)
+{
+    uint8 scl_out;
+    scl_out = (gpio_input_get()&(1<<I2C_MASTER_SCL_GPIO))?1:0;
+    return scl_out;
+}
+
 
 /******************************************************************************
  * FunctionName : i2c_master_init
@@ -131,6 +139,7 @@ i2c_master_gpio_init(void)
 void ICACHE_FLASH_ATTR
 i2c_master_start(void)
 {
+	//Start: Pull down SDA when SCL is high
     i2c_master_setDC(1, m_nLastSCL);
     i2c_master_wait(5);
     i2c_master_setDC(1, 1);
@@ -148,8 +157,8 @@ i2c_master_start(void)
 void ICACHE_FLASH_ATTR
 i2c_master_stop(void)
 {
+	//Stop: pull up SDA while SCL is high.
     i2c_master_wait(5);
-
     i2c_master_setDC(0, m_nLastSCL);
     i2c_master_wait(5);	// sda 0
     i2c_master_setDC(0, 1);
@@ -167,11 +176,17 @@ i2c_master_stop(void)
 void ICACHE_FLASH_ATTR
 i2c_master_setAck(uint8 level)
 {
+	int timeout=1000;
     i2c_master_setDC(m_nLastSDA, 0);
     i2c_master_wait(5);
     i2c_master_setDC(level, 0);
     i2c_master_wait(5);	// sda level, scl 0
     i2c_master_setDC(level, 1);
+	while (i2c_master_getScl()==0 && timeout!=0) { //handle clock stretching
+		i2c_master_wait(5);
+		timeout--;
+	}
+	if (timeout==0) printf("i2c_master_setAck: clk stretch wait timeout\n");
     i2c_master_wait(8);	// sda level, scl 1
     i2c_master_setDC(level, 0);
     i2c_master_wait(5);	// sda level, scl 0
@@ -189,12 +204,17 @@ uint8 ICACHE_FLASH_ATTR
 i2c_master_getAck(void)
 {
     uint8 retVal;
+	int timeout=1000;
     i2c_master_setDC(m_nLastSDA, 0);
     i2c_master_wait(5);
     i2c_master_setDC(1, 0);
     i2c_master_wait(5);
     i2c_master_setDC(1, 1);
-    i2c_master_wait(5);
+	while (i2c_master_getScl()==0 && timeout!=0) { //handle clock stretching
+		i2c_master_wait(5);
+		timeout--;
+	}
+	if (timeout==0) printf("i2c_master_getAck: clk stretch wait timeout\n");
 
     retVal = i2c_master_getDC();
     i2c_master_wait(5);
@@ -277,8 +297,8 @@ i2c_master_readByte(void)
         retVal |= k;
     }
 
-    i2c_master_setDC(1, 0);
-    i2c_master_wait(5);	// sda 1, scl 0
+//    i2c_master_setDC(1, 0);
+//    i2c_master_wait(5);	// sda 1, scl 0
 
     return retVal;
 }

@@ -23,8 +23,20 @@ static int ICACHE_FLASH_ATTR ft6x06ReadRegs(int regStart, unsigned char* ret, in
 
 static unsigned char ICACHE_FLASH_ATTR ft6x06ReadReg(int reg) {
 	unsigned char ret;
-	ft6x06ReadRegs(reg, &ret, 1);
+	int nacked;
+#if 0
+	nacked=ft6x06ReadRegs(reg, &ret, 1);
+	if (nacked) {
+//		printf("NO ACK WHILE READING REG!\n");
+		return -1;
+	}
+#else
+	do {
+		nacked=ft6x06ReadRegs(reg, &ret, 1);
+//		if (nacked) printf("NO ACK WHILE READING REG!\n");
+	} while (nacked);
 	return ret;
+#endif
 }
 
 static int ICACHE_FLASH_ATTR ft6x06WriteReg(int reg, unsigned char val) {
@@ -49,6 +61,9 @@ int ICACHE_FLASH_ATTR ft6x06Init() {
 		printf("FT6x06: VID 0x%X (should be 0x11) cid 0x%X (should be 0x6)\n", vend, chip);
 		return 0;
 	}
+	ft6x06WriteReg(FT6206_REG_CTRL, 0); //keep in active mode
+	ft6x06WriteReg(FT6206_REG_G_MODE, 0); //Polling mode
+	ft6x06WriteReg(FT6206_REG_PERIODACTIVE, 0x82);
 	return 1;
 }
 
@@ -58,14 +73,17 @@ void ICACHE_FLASH_ATTR ft6x06SetSens(int sens) {
 
 static int ICACHE_FLASH_ATTR ft6x06GetTouchSlot(int slot, int *x, int *y) {
 	unsigned char buff[4];
-	int f;
+	int f, r;
 	int reg;
+	int ret;
 	if (slot==1) reg=FT6206_REG_P1_XH;
 	if (slot==2) reg=FT6206_REG_P2_XH;
 	
-	f=ft6x06ReadReg(reg)>>6;
-	if (f!=0x2) return 0; //no contact event? Exit.
-	ft6x06ReadRegs(reg, buff, sizeof(buff));
+	f=ft6x06ReadReg(reg);
+	if (r==-1) return -1;
+	if ((f>>6)!=0x2 && (f>>6)!=0) return 0; //no contact event? Exit.
+	ret=ft6x06ReadRegs(reg, buff, sizeof(buff));
+	if (ret) return -1;
 	*x=((buff[0]&0xf)<<8)|(buff[1]);
 	*y=((buff[2]&0xf)<<8)|(buff[3]);
 	return 1;
@@ -73,8 +91,12 @@ static int ICACHE_FLASH_ATTR ft6x06GetTouchSlot(int slot, int *x, int *y) {
 
 int ICACHE_FLASH_ATTR ft6x06GetTouch(int *x, int *y) {
 	int r;
-	r=ft6x06GetTouchSlot(1, x, y);
+	do {
+		r=ft6x06GetTouchSlot(1, x, y);
+	} while (r==-1);
 	if (r) return r;
-	r=ft6x06GetTouchSlot(2, x, y);
+	do {
+		r=ft6x06GetTouchSlot(2, x, y);
+	} while (r==-1);
 	return r;
 }
