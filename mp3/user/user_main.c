@@ -80,7 +80,7 @@ struct sdio_queue i2sBufDesc[2];
 
 void ICACHE_FLASH_ATTR i2sInit() {
 	int x;
-	printf("i2sInit()\n");
+//	printf("i2sInit()\n");
 	//Init pins to i2s functions
 
 	PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_I2SO_DATA);
@@ -271,11 +271,11 @@ void ICACHE_FLASH_ATTR spiRamTest() {
 		bb=x;
 		if (aa!=a[x]) {
 			err=1;
-			printf("aa: 0x%x != 0x%x\n", aa, a[x]);
+//			printf("aa: 0x%x != 0x%x\n", aa, a[x]);
 		}
 		if (bb!=b[x]) {
 			err=1;
-			printf("bb: 0x%x != 0x%x\n", bb, b[x]);
+//			printf("bb: 0x%x != 0x%x\n", bb, b[x]);
 		}
 	}
 	while(err);
@@ -299,7 +299,6 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 	}
 #endif
 #ifdef I2S_AUDIO
-	printf("---> %x\n", (READ_PERI_REG((SLC_TX_LINK))));
 	for (i=0; i<no_samples; i++) {
 		i2sTxSamp(short_sample_buff[i]|(short_sample_buff[i]<<16));
 	}
@@ -393,10 +392,6 @@ int ICACHE_FLASH_ATTR openConn() {
 //			printf("Client socket create error\n");
 			continue;
 		}
-		n=1;
-		setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &n, sizeof(n));
-		n=4096;
-		setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &n, sizeof(n));
 		bzero(&remote_ip, sizeof(struct sockaddr_in));
 		remote_ip.sin_family = AF_INET;
 		remote_ip.sin_addr.s_addr = inet_addr(server_ip);
@@ -490,6 +485,7 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 //	printf("Connection thread done.\n");
 
 	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 3, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
+//	while(1) printf("---> %x\n", (READ_PERI_REG((SLC_TX_LINK))));
 	vTaskDelete(NULL);
 }
 
