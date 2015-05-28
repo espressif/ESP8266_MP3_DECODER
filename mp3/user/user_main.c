@@ -20,6 +20,8 @@
 
 #include "mad.h"
 #include "i2s_reg.h"
+#include "slc_register.h"
+#include "sdio_slv.h"
 
 /*
 Mem usage:
@@ -71,7 +73,13 @@ struct madPrivateData {
       i2c_readReg_Mask(block, block##_hostid,  reg_add,  reg_add##_msb,  reg_add##_lsb)
 
 
+#define DMABUFLEN 128
+unsigned int i2sBuf[2][DMABUFLEN];
+struct sdio_queue i2sBufDesc[2];
+
+
 void ICACHE_FLASH_ATTR i2sInit() {
+	int x;
 	printf("i2sInit()\n");
 	//Init pins to i2s functions
 
@@ -112,9 +120,37 @@ void ICACHE_FLASH_ATTR i2sInit() {
 						((16&I2S_BCK_DIV_NUM )<<I2S_BCK_DIV_NUM_S)|
 						((7&I2S_CLKM_DIV_NUM)<<I2S_CLKM_DIV_NUM_S));
 
+	//Reset DMA
+	SET_PERI_REG_MASK(SLC_CONF0, SLC_RXLINK_RST|SLC_TXLINK_RST);
+	CLEAR_PERI_REG_MASK(SLC_CONF0, SLC_RXLINK_RST|SLC_TXLINK_RST);
+	//Enable and configure DMA
+	CLEAR_PERI_REG_MASK(SLC_CONF0, (SLC_MODE<<SLC_MODE_S));
+	SET_PERI_REG_MASK(SLC_CONF0,(1<<SLC_MODE_S));
+	SET_PERI_REG_MASK(SLC_RX_DSCR_CONF,SLC_INFOR_NO_REPLACE|SLC_TOKEN_NO_REPLACE);
+	CLEAR_PERI_REG_MASK(SLC_RX_DSCR_CONF, SLC_RX_FILL_EN|SLC_RX_EOF_MODE | SLC_RX_FILL_MODE);
+	//Enable DMA in i2s subsystem
+	SET_PERI_REG_MASK(I2S_FIFO_CONF, I2S_I2S_DSCR_EN);
+
+	//Initialize 2 DMA buffer things
+	for (x=0; x<2; x++) {
+		i2sBufDesc[x].owner=1;
+		i2sBufDesc[x].eof=0;
+		i2sBufDesc[x].sub_sof=0;
+		i2sBufDesc[x].datalen=512;
+		i2sBufDesc[x].blocksize=0;
+		i2sBufDesc[x].buf_ptr=(uint32_t)&i2sBuf[x];
+		i2sBufDesc[x].unused=0;
+	}
+	i2sBufDesc[0].next_link_ptr=(uint32_t)&i2sBufDesc[1];
+	i2sBufDesc[1].next_link_ptr=(uint32_t)&i2sBufDesc[0];
+	
+	CLEAR_PERI_REG_MASK(SLC_TX_LINK,SLC_TXLINK_DESCADDR_MASK);
+	SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[0]) & SLC_TXLINK_DESCADDR_MASK);
+
 	//Start transmit
 	SET_PERI_REG_MASK(I2SCONF,I2S_I2S_TX_START);
 }
+
 
 void i2sSetRate(int rate) {
 /*
@@ -263,6 +299,7 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 	}
 #endif
 #ifdef I2S_AUDIO
+	printf("---> %x\n", (READ_PERI_REG((SLC_TX_LINK))));
 	for (i=0; i<no_samples; i++) {
 		i2sTxSamp(short_sample_buff[i]|(short_sample_buff[i]<<16));
 	}
