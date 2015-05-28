@@ -251,8 +251,8 @@ struct madPrivateData madParms;
 void render_sample_block(short *short_sample_buff, int no_samples) {
 	int i, s;
 	static int err=0;
-	char samp[]={0x00, 0x01, 0x11, 0x15, 0x55, 0x75, 0x77, 0xf7, 0xff};
 #ifdef UART_AUDIO
+	char samp[]={0x00, 0x01, 0x11, 0x15, 0x55, 0x75, 0x77, 0xf7, 0xff};
 	for (i=0; i<no_samples; i++) {
 		s=short_sample_buff[i];
 		s+=err;
@@ -262,6 +262,10 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 		err=s-((s>>13)<<14);
 	}
 #endif
+	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW));
+
+	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
+	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
 #ifdef I2S_AUDIO
 	for (i=0; i<no_samples; i++) {
 		i2sTxSamp(short_sample_buff[i]|(short_sample_buff[i]<<16));
