@@ -19,6 +19,7 @@
 #include "lwip/netdb.h"
 
 #include "mad.h"
+#include "i2s_reg.h"
 
 /*
 Mem usage:
@@ -31,7 +32,8 @@ layer3: 744 bytes rodata
 //#define server_ip "192.168.4.100"
 #define server_port 1234
 
-#define UART_AUDIO
+//#define UART_AUDIO
+#define I2S_AUDIO
 
 
 struct madPrivateData {
@@ -53,7 +55,100 @@ struct madPrivateData {
 #define SPI 			0
 #define HSPI			1
 
-void spiRamInit() {
+#ifdef I2S_AUDIO
+
+#define i2c_bbpll                                 0x67
+#define i2c_bbpll_en_audio_clock_out            4
+#define i2c_bbpll_en_audio_clock_out_msb        7
+#define i2c_bbpll_en_audio_clock_out_lsb        7
+#define i2c_bbpll_hostid                           4
+
+#define i2c_writeReg_Mask(block, host_id, reg_add, Msb, Lsb, indata)  rom_i2c_writeReg_Mask(block, host_id, reg_add, Msb, Lsb, indata)
+#define i2c_readReg_Mask(block, host_id, reg_add, Msb, Lsb)  rom_i2c_readReg_Mask(block, host_id, reg_add, Msb, Lsb)
+#define i2c_writeReg_Mask_def(block, reg_add, indata) \
+      i2c_writeReg_Mask(block, block##_hostid,  reg_add,  reg_add##_msb,  reg_add##_lsb,  indata)
+#define i2c_readReg_Mask_def(block, reg_add) \
+      i2c_readReg_Mask(block, block##_hostid,  reg_add,  reg_add##_msb,  reg_add##_lsb)
+
+
+void ICACHE_FLASH_ATTR i2sInit() {
+	printf("i2sInit()\n");
+	//Init pins to i2s functions
+
+	PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_I2SO_DATA);
+	PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_I2SO_WS);
+	PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDO_U, FUNC_I2SO_BCK);
+
+	//Enable clock to i2s subsystem?
+	i2c_writeReg_Mask_def(i2c_bbpll, i2c_bbpll_en_audio_clock_out, 1);
+
+	//Reset I2S subsystem
+	CLEAR_PERI_REG_MASK(I2SCONF,I2S_I2S_RESET_MASK);
+	SET_PERI_REG_MASK(I2SCONF,I2S_I2S_RESET_MASK);
+	CLEAR_PERI_REG_MASK(I2SCONF,I2S_I2S_RESET_MASK);
+
+	//Select 16bits per channel(FIFO_MOD=0), no DMA access (FIFO only)
+	CLEAR_PERI_REG_MASK(I2S_FIFO_CONF, I2S_I2S_DSCR_EN|(I2S_I2S_RX_FIFO_MOD<<I2S_I2S_RX_FIFO_MOD_S)|(I2S_I2S_TX_FIFO_MOD<<I2S_I2S_TX_FIFO_MOD_S));
+
+	//tx/rx binaureal
+	CLEAR_PERI_REG_MASK(I2SCONF_CHAN, (I2S_TX_CHAN_MOD<<I2S_TX_CHAN_MOD_S)|(I2S_RX_CHAN_MOD<<I2S_RX_CHAN_MOD_S));
+
+	//?
+	WRITE_PERI_REG(I2SRXEOF_NUM, 0x80);
+
+	//Clear int
+	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
+			I2S_I2S_RX_WFULL_INT_CLR|I2S_I2S_PUT_DATA_INT_CLR|I2S_I2S_TAKE_DATA_INT_CLR);
+	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
+			I2S_I2S_RX_WFULL_INT_CLR|I2S_I2S_PUT_DATA_INT_CLR|I2S_I2S_TAKE_DATA_INT_CLR);
+
+	//trans master&rece slave,MSB shift,right_first,msb right
+	CLEAR_PERI_REG_MASK(I2SCONF, I2S_TRANS_SLAVE_MOD|
+						(I2S_BITS_MOD<<I2S_BITS_MOD_S)|
+						(I2S_BCK_DIV_NUM <<I2S_BCK_DIV_NUM_S)|
+						(I2S_CLKM_DIV_NUM<<I2S_CLKM_DIV_NUM_S));
+	SET_PERI_REG_MASK(I2SCONF, I2S_RIGHT_FIRST|I2S_MSB_RIGHT|I2S_RECE_SLAVE_MOD|
+						I2S_RECE_MSB_SHIFT|I2S_TRANS_MSB_SHIFT|
+						((16&I2S_BCK_DIV_NUM )<<I2S_BCK_DIV_NUM_S)|
+						((7&I2S_CLKM_DIV_NUM)<<I2S_CLKM_DIV_NUM_S));
+
+	//Start transmit
+	SET_PERI_REG_MASK(I2SCONF,I2S_I2S_TX_START);
+}
+
+void i2sSetRate(int rate) {
+/*
+	CLEAR_PERI_REG_MASK(I2SCONF, I2S_TRANS_SLAVE_MOD|
+						(I2S_BITS_MOD<<I2S_BITS_MOD_S)|
+						(I2S_BCK_DIV_NUM <<I2S_BCK_DIV_NUM_S)|
+						(I2S_CLKM_DIV_NUM<<I2S_CLKM_DIV_NUM_S));
+	SET_PERI_REG_MASK(I2SCONF, I2S_RIGHT_FIRST|I2S_MSB_RIGHT|I2S_RECE_SLAVE_MOD|
+						I2S_RECE_MSB_SHIFT|I2S_TRANS_MSB_SHIFT|
+						((16&I2S_BCK_DIV_NUM )<<I2S_BCK_DIV_NUM_S)|
+						((7&I2S_CLKM_DIV_NUM)<<I2S_CLKM_DIV_NUM_S));
+*/
+}
+
+
+void i2sTxSamp(unsigned int samp) {
+	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW));
+
+	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
+	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
+
+/*
+	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_REMPTY_INT_RAW));
+
+	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR);
+	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR);
+*/
+	WRITE_PERI_REG(I2STXFIFO, samp);
+}
+
+#endif
+
+
+void ICACHE_FLASH_ATTR spiRamInit() {
 	 //hspi overlap to spi, two spi masters on cspi
 	//#define HOST_INF_SEL 0x3ff00028 
 	SET_PERI_REG_MASK(0x3ff00028, BIT(7));
@@ -72,13 +167,6 @@ void spiRamInit() {
 	//IT WORK AS HSPI CS2 AFTER OVERLAP(THERE IS NO PIN OUT FOR NATIVE HSPI CS1/2)
 	PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_SPICS2);
 
-/*
-	WRITE_PERI_REG(SPI_CLOCK(HSPI), 
-					(((7)&SPI_CLKDIV_PRE)<<SPI_CLKDIV_PRE_S)|
-					(((4)&SPI_CLKCNT_N)<<SPI_CLKCNT_N_S)|
-					(((4)&SPI_CLKCNT_H)<<SPI_CLKCNT_H_S)|
-					(((2)&SPI_CLKCNT_L)<<SPI_CLKCNT_L_S));
-*/
 	WRITE_PERI_REG(SPI_CLOCK(HSPI), 
 					(((1)&SPI_CLKDIV_PRE)<<SPI_CLKDIV_PRE_S)|
 					(((2)&SPI_CLKCNT_N)<<SPI_CLKCNT_N_S)|
@@ -127,7 +215,7 @@ void spiRamWrite(int addr, char *buff, int len) {
 }
 
 
-void spiRamTest() {
+void ICACHE_FLASH_ATTR spiRamTest() {
 	int x;
 	int err=0;
 	char a[64];
@@ -170,15 +258,20 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 		s+=err;
 		if (s>32867) s=32767;
 		if (s<-32768) s=-32768;
-		uart_tx_one_char(0, samp[(s >> 14)+4]);
-		err=s-((s>>14)<<14);
+		uart_tx_one_char(0, samp[(s >> 13)+4]);
+		err=s-((s>>13)<<14);
+	}
+#endif
+#ifdef I2S_AUDIO
+	for (i=0; i<no_samples; i++) {
+		i2sTxSamp(short_sample_buff[i]|(short_sample_buff[i]<<16));
 	}
 #endif
 //	printf("rsb %04x %04x\n", short_sample_buff[0], short_sample_buff[1]);
 }
 
 void set_dac_sample_rate(int rate) {
-	printf("sr %d\n", rate);
+//	printf("sr %d\n", rate);
 }
 
 //The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
@@ -254,7 +347,7 @@ static enum mad_flow ICACHE_FLASH_ATTR error(void *data, struct mad_stream *stre
 }
 
 
-int openConn() {
+int ICACHE_FLASH_ATTR openConn() {
 	while(1) {
 		int n, i;
 		struct sockaddr_in remote_ip;
@@ -302,14 +395,14 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 	p->fd=-1;
 	while(1) {
 		if (p->fd==-1) p->fd=openConn();
-		printf("Reading into SPI buffer...\n");
+//		printf("Reading into SPI buffer...\n");
 		do {
 			//Grab amount of buffer full-ness
 			xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
 			inBuf=p->fifoLen;
 			xSemaphoreGive(p->muxBufferBusy);
 			if (inBuf<(SPIRAMSIZE-SPIREADSIZE)) {
-				printf("Fifo fill: %d\n", inBuf);
+//				printf("Fifo fill: %d\n", inBuf);
 				//We can add some data. Read data from fd into buffer. Make sure we read 64 bytes.
 				l=0;
 				while (l!=SPIREADSIZE) {
@@ -332,7 +425,7 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 			if (xTaskCreate(tskmad, "tskmad", 2450, NULL, 2, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task!\n");
 			madRunning=1;
 		}
-		printf("Read done.\n");
+//		printf("Read done.\n");
 		//Try to take the semaphore. This will wait until the mad task signals it needs more data.
 		xSemaphoreTake(p->semNeedRead, portMAX_DELAY);
 	}
@@ -376,6 +469,9 @@ user_init(void)
 	UART_SetBaudrate(0, 481000);
 #else
 	UART_SetBaudrate(0, 115200);
+#endif
+#ifdef I2S_AUDIO
+	i2sInit();
 #endif
 	spiRamInit();
 	spiRamTest();
