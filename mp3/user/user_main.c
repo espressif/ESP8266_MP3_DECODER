@@ -131,18 +131,19 @@ void i2sSetRate(int rate) {
 
 
 void i2sTxSamp(unsigned int samp) {
-	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW));
+/*
+	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW))  printf("w");
 
 	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
 	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
 
-/*
-	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_REMPTY_INT_RAW));
+	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_REMPTY_INT_RAW)) printf("w");
 
 	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR);
 	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR);
 */
 	WRITE_PERI_REG(I2STXFIFO, samp);
+
 }
 
 #endif
@@ -182,6 +183,7 @@ void ICACHE_FLASH_ATTR spiRamInit() {
 void spiRamRead(int addr, char *buff, int len) {
 	int i;
 	int *p=(int*)buff;
+	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
 	SET_PERI_REG_MASK(SPI_USER(HSPI), SPI_CS_SETUP|SPI_CS_HOLD|SPI_USR_COMMAND|SPI_USR_ADDR|SPI_USR_MISO);
 	CLEAR_PERI_REG_MASK(SPI_USER(HSPI), SPI_FLASH_MODE|SPI_USR_MOSI);
 	WRITE_PERI_REG(SPI_USER1(HSPI), ((0&SPI_USR_MOSI_BITLEN)<<SPI_USR_MOSI_BITLEN_S)| //no data out
@@ -200,6 +202,7 @@ void spiRamRead(int addr, char *buff, int len) {
 void spiRamWrite(int addr, char *buff, int len) {
 	int i;
 	int *p=(int*)buff;
+	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
 	SET_PERI_REG_MASK(SPI_USER(HSPI), SPI_CS_SETUP|SPI_CS_HOLD|SPI_USR_COMMAND|SPI_USR_ADDR|SPI_USR_MOSI);
 	CLEAR_PERI_REG_MASK(SPI_USER(HSPI), SPI_FLASH_MODE|SPI_USR_MISO);
 	WRITE_PERI_REG(SPI_USER1(HSPI), ((((8*len)-1)&SPI_USR_MOSI_BITLEN)<<SPI_USR_MOSI_BITLEN_S)| //len bitsbits of data out
@@ -211,7 +214,6 @@ void spiRamWrite(int addr, char *buff, int len) {
 		WRITE_PERI_REG(SPI_W(HSPI, (i)), p[i]);
 	}
 	SET_PERI_REG_MASK(SPI_CMD(HSPI), SPI_USR);
-	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
 }
 
 
@@ -262,13 +264,13 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 		err=s-((s>>13)<<14);
 	}
 #endif
-	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW));
-
+#ifdef I2S_AUDIO
+	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW)) printf("w");
+//	printf(".");
 	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
 	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
-#ifdef I2S_AUDIO
 	for (i=0; i<no_samples; i++) {
-		i2sTxSamp(short_sample_buff[i]|(short_sample_buff[i]<<16));
+		i2sTxSamp(short_sample_buff[i]|((short_sample_buff[i]<<16)&0xffff0000));
 	}
 #endif
 //	printf("rsb %04x %04x\n", short_sample_buff[0], short_sample_buff[1]);
@@ -282,9 +284,14 @@ void set_dac_sample_rate(int rate) {
 #define READBUFSZ (2106+64)
 static char readBuf[READBUFSZ]; 
 
-void ICACHE_FLASH_ATTR memcpyAligned(char *dst, char *src, int len) {
+void memcpyAligned(char *dst, char *src, int len) {
 	int x;
 	int w, b;
+	if (((int)dst&3)==0 && ((int)src&3)==0) {
+		memcpy(dst, src, len);
+		return;
+	}
+
 	for (x=0; x<len; x++) {
 		b=((int)src&3);
 		w=*((int *)(src-b));
@@ -456,7 +463,7 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 	free(config);
 //	printf("Connection thread done.\n");
 
-	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 3, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
+	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 1, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
 	vTaskDelete(NULL);
 }
 

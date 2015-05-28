@@ -31,7 +31,10 @@ endif # } PDIR
 APPDIR = .
 LDDIR = ../ld
 
-CCFLAGS += -Os
+CCFLAGS += -Os 
+#\
+#	-fdata-sections -ffast-math -fmerge-all-constants -fomit-frame-pointer -funroll-loops \
+
 
 TARGET_LDFLAGS =		\
 	-nostdlib		\
@@ -40,11 +43,11 @@ TARGET_LDFLAGS =		\
 	--text-section-literals
 
 ifeq ($(FLAVOR),debug)
-    TARGET_LDFLAGS += -g -O2
+    TARGET_LDFLAGS += -g -Os
 endif
 
 ifeq ($(FLAVOR),release)
-    TARGET_LDFLAGS += -g -O0
+    TARGET_LDFLAGS += -g -Os
 endif
 
 COMPONENTS_eagle.app.v6 = \
@@ -61,6 +64,7 @@ LINKFLAGS_eagle.app.v6 = \
     -u call_user_start	\
 	-Wl,-static						\
 	-Wl,--start-group					\
+	-fdata-sections -ffast-math -fmerge-all-constants -fomit-frame-pointer -funroll-loops \
 	-lgcc					\
 	-lhal					\
 	-lphy	\

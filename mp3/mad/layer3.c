@@ -143,8 +143,9 @@ unsigned char const ICACHE_RODATA_ATTR sfb_48000_long[] = {
   12, 16, 18, 22, 28, 34, 40, 46, 54,  54, 192
 };
 
+// ICACHE_RODATA_ATTR 
 static
-unsigned char const ICACHE_RODATA_ATTR sfb_44100_long[] = {
+unsigned char const sfb_44100_long[] = {
    4,  4,  4,  4,  4,  4,  6,  6,  8,   8,  10,
   12, 16, 20, 24, 28, 34, 42, 50, 54,  76, 158
 };
@@ -162,8 +163,9 @@ unsigned char const ICACHE_RODATA_ATTR sfb_48000_short[] = {
   14, 16, 16, 16, 20, 20, 20, 26, 26, 26, 66, 66, 66
 };
 
+// ICACHE_RODATA_ATTR
 static
-unsigned char const ICACHE_RODATA_ATTR sfb_44100_short[] = {
+unsigned char const sfb_44100_short[] = {
    4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  6,
    6,  6,  8,  8,  8, 10, 10, 10, 12, 12, 12, 14, 14,
   14, 18, 18, 18, 22, 22, 22, 30, 30, 30, 56, 56, 56
@@ -184,8 +186,9 @@ unsigned char const ICACHE_RODATA_ATTR sfb_48000_mixed[] = {
               16, 20, 20, 20, 26, 26, 26, 66, 66, 66
 };
 
+//ICACHE_RODATA_ATTR 
 static
-unsigned char const ICACHE_RODATA_ATTR sfb_44100_mixed[] = {
+unsigned char const sfb_44100_mixed[] = {
   /* long */   4,  4,  4,  4,  4,  4,  6,  6,
   /* short */  4,  4,  4,  6,  6,  6,  8,  8,  8, 10,
               10, 10, 12, 12, 12, 14, 14, 14, 18, 18,
@@ -2574,7 +2577,6 @@ int ICACHE_FLASH_ATTR mad_layer_III(struct mad_stream *stream, struct mad_frame 
       result = -1;
     }
   }
-
   /* decode frame side information */
 
   error = III_sideinfo(&stream->ptr, nch, header->flags & MAD_FLAG_LSF_EXT,
@@ -2586,6 +2588,7 @@ int ICACHE_FLASH_ATTR mad_layer_III(struct mad_stream *stream, struct mad_frame 
 
   header->flags        |= priv_bitlen;
   header->private_bits |= si.private_bits;
+
 
   /* find main_data of next frame */
 
