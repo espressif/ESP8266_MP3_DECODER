@@ -41,6 +41,8 @@
 static inline
 signed int scale(mad_fixed_t sample)
 {
+  return sample >> (MAD_F_FRACBITS + 1 - 14);
+
   /* round */
   sample += (1L << (MAD_F_FRACBITS - 16));
 

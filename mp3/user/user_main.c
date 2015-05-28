@@ -253,6 +253,7 @@ struct madPrivateData madParms;
 void render_sample_block(short *short_sample_buff, int no_samples) {
 	int i, s;
 	static int err=0;
+	unsigned int samp;
 #ifdef UART_AUDIO
 	char samp[]={0x00, 0x01, 0x11, 0x15, 0x55, 0x75, 0x77, 0xf7, 0xff};
 	for (i=0; i<no_samples; i++) {
@@ -265,12 +266,19 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 	}
 #endif
 #ifdef I2S_AUDIO
-	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW)) printf("w");
-//	printf(".");
-	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
-	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
+	//short_sample_buff is signed integer
+	
 	for (i=0; i<no_samples; i++) {
-		i2sTxSamp(short_sample_buff[i]|((short_sample_buff[i]<<16)&0xffff0000));
+		while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW));//  printf("w");
+//		printf(".");
+/*
+		samp=(short_sample_buff[i]);
+		samp=(samp)&0xffff;
+		samp=(samp<<16)|samp;
+*/
+		SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
+		CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
+		WRITE_PERI_REG(I2STXFIFO, short_sample_buff[i]);
 	}
 #endif
 //	printf("rsb %04x %04x\n", short_sample_buff[0], short_sample_buff[1]);
@@ -390,7 +398,7 @@ int ICACHE_FLASH_ATTR openConn() {
 void ICACHE_FLASH_ATTR tskmad(void *pvParameters){
 	struct mad_decoder decoder;
 	struct madPrivateData *p=&madParms; //pvParameters;
-//	printf("MAD: Decoder init.\n");
+	printf("MAD: Decoder start.\n");
 	mad_decoder_init(&decoder, p, input, 0, 0 , output, error, 0);
 	mad_decoder_run(&decoder, MAD_DECODER_MODE_SYNC);
 	mad_decoder_finish(&decoder);
@@ -463,7 +471,7 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 	free(config);
 //	printf("Connection thread done.\n");
 
-	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 1, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
+	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 2, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
 	vTaskDelete(NULL);
 }
 
