@@ -22,19 +22,11 @@
 #include "i2s_reg.h"
 #include "spiram.h"
 
-/*
-Mem usage:
-layer3: 744 bytes rodata
-*/
-
 
 #define server_ip "192.168.40.117"
 //#define server_ip "192.168.1.4"
 //#define server_ip "192.168.4.100"
 #define server_port 1234
-
-//#define UART_AUDIO
-#define I2S_AUDIO
 
 
 struct madPrivateData {
@@ -46,14 +38,10 @@ struct madPrivateData {
 	int fifoWaddr;
 };
 
-#ifdef UART_AUDIO
-#define printf(a, ...) while(0)
-#endif
 
 #define SPIRAMSIZE (128*1024)
 #define SPIREADSIZE 64 		//in bytes, needs to be multiple of 4
 
-#ifdef I2S_AUDIO
 
 #define i2c_bbpll                                 0x67
 #define i2c_bbpll_en_audio_clock_out            4
@@ -144,7 +132,6 @@ void i2sTxSamp(unsigned int samp) {
 
 }
 
-#endif
 
 
 struct madPrivateData madParms;
@@ -153,18 +140,6 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 	int i, s;
 	static int err=0;
 	unsigned int samp;
-#ifdef UART_AUDIO
-	char samp[]={0x00, 0x01, 0x11, 0x15, 0x55, 0x75, 0x77, 0xf7, 0xff};
-	for (i=0; i<no_samples; i++) {
-		s=short_sample_buff[i];
-		s+=err;
-		if (s>32867) s=32767;
-		if (s<-32768) s=-32768;
-		uart_tx_one_char(0, samp[(s >> 13)+4]);
-		err=s-((s>>13)<<14);
-	}
-#endif
-#ifdef I2S_AUDIO
 	//short_sample_buff is signed integer
 	
 	for (i=0; i<no_samples; i++) {
@@ -179,7 +154,6 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 		CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
 		WRITE_PERI_REG(I2STXFIFO, short_sample_buff[i]);
 	}
-#endif
 //	printf("rsb %04x %04x\n", short_sample_buff[0], short_sample_buff[1]);
 }
 
@@ -383,14 +357,7 @@ user_init(void)
 	SET_PERI_REG_MASK(0x3ff00014, BIT(0));
 	os_update_cpu_frequency(160);
 	
-#ifdef UART_AUDIO
-	UART_SetBaudrate(0, 481000);
-#else
-	UART_SetBaudrate(0, 115200);
-#endif
-#ifdef I2S_AUDIO
 	i2sInit();
-#endif
 	spiRamInit();
 	spiRamTest();
 
