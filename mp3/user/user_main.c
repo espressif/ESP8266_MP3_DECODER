@@ -59,9 +59,9 @@ struct madPrivateData {
       i2c_readReg_Mask(block, block##_hostid,  reg_add,  reg_add##_msb,  reg_add##_lsb)
 
 
-#define DMABUFLEN 128
+#define DMABUFLEN 200
 unsigned int i2sBuf[2][DMABUFLEN];
-struct sdio_queue i2sBufDesc[3];
+struct sdio_queue i2sBufDesc[2];
 
 
 void ICACHE_FLASH_ATTR i2sInit() {
@@ -70,12 +70,17 @@ void ICACHE_FLASH_ATTR i2sInit() {
 	//Test: Fill sample buffer with crap
 	for (x=0; x<DMABUFLEN; x++) {
 		i2sBuf[0][x]=0;
-		i2sBuf[1][x]=0xffffffff;
+		i2sBuf[1][x]=0;
 	}
 
 	//Reset DMA
 	SET_PERI_REG_MASK(SLC_CONF0, SLC_RXLINK_RST|SLC_TXLINK_RST);
 	CLEAR_PERI_REG_MASK(SLC_CONF0, SLC_RXLINK_RST|SLC_TXLINK_RST);
+
+	//Clear DMA int flags
+	SET_PERI_REG_MASK(SLC_INT_CLR,  0xffffffff);
+	CLEAR_PERI_REG_MASK(SLC_INT_CLR,  0xffffffff);
+
 	//Enable and configure DMA
 	CLEAR_PERI_REG_MASK(SLC_CONF0, (SLC_MODE<<SLC_MODE_S));
 	SET_PERI_REG_MASK(SLC_CONF0,(1<<SLC_MODE_S));
@@ -87,16 +92,20 @@ void ICACHE_FLASH_ATTR i2sInit() {
 		i2sBufDesc[x].owner=1;
 		i2sBufDesc[x].eof=1;
 		i2sBufDesc[x].sub_sof=0;
+		i2sBufDesc[x].datalen=DMABUFLEN;
+		i2sBufDesc[x].blocksize=DMABUFLEN;
 		i2sBufDesc[x].buf_ptr=(uint32_t)&i2sBuf[x];
 		i2sBufDesc[x].unused=0;
 		i2sBufDesc[x].next_link_ptr=0;
 	}
+	i2sBufDesc[0].next_link_ptr=(int)&i2sBufDesc[1];
+	i2sBufDesc[1].next_link_ptr=(int)&i2sBufDesc[0];
 	
 	//Feed dma the 1st buffer desc addr
 	CLEAR_PERI_REG_MASK(SLC_TX_LINK,SLC_TXLINK_DESCADDR_MASK);
-	SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[1]) & SLC_TXLINK_DESCADDR_MASK);
+	SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[0]) & SLC_TXLINK_DESCADDR_MASK);
 	CLEAR_PERI_REG_MASK(SLC_RX_LINK,SLC_RXLINK_DESCADDR_MASK);
-	SET_PERI_REG_MASK(SLC_RX_LINK, ((uint32)&i2sBufDesc[0]) & SLC_RXLINK_DESCADDR_MASK);
+	SET_PERI_REG_MASK(SLC_RX_LINK, ((uint32)&i2sBufDesc[1]) & SLC_RXLINK_DESCADDR_MASK);
 
 	//Start transmission
 	SET_PERI_REG_MASK(SLC_TX_LINK, SLC_TXLINK_START);
@@ -155,11 +164,10 @@ void ICACHE_FLASH_ATTR i2sInit() {
 	I2S_I2S_RX_REMPTY_INT_ENA|I2S_I2S_TX_PUT_DATA_INT_ENA|I2S_I2S_RX_TAKE_DATA_INT_ENA);
 
 
+
 	//Start transmit
 	SET_PERI_REG_MASK(I2SCONF,I2S_I2S_TX_START);
 
-	SET_PERI_REG_MASK(SLC_INT_CLR,  0xffffffff);
-	CLEAR_PERI_REG_MASK(SLC_INT_CLR,  0xffffffff);
 /*
 	while(1) {
 		printf("SLC_INT_RAW %x %x\n", READ_PERI_REG(SLC_INT_RAW), READ_PERI_REG(SLC_TX_STATUS));
@@ -185,26 +193,7 @@ void i2sSetRate(int rate) {
 int backBuffNo=0;
 int buffPos=0;
 
-void i2sTxSamp(unsigned int samp) {
-	do {
-		if((READ_PERI_REG(SLC_INT_RAW) & SLC_RX_DONE_INT_RAW)) {
-			printf("%d %d\n", backBuffNo, buffPos);
-			//Send current back buffer (will be front buffer)to the DMA
-			CLEAR_PERI_REG_MASK(SLC_TX_LINK,SLC_TXLINK_DESCADDR_MASK);
-			SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[backBuffNo]) & SLC_TXLINK_DESCADDR_MASK);
-			//Start transmission again
-			SET_PERI_REG_MASK(SLC_TX_LINK, SLC_TXLINK_START);
-			SET_PERI_REG_MASK(SLC_RX_LINK, SLC_RXLINK_START);
-			//exchange front and back buffer
-			backBuffNo=(backBuffNo==1)?0:1; 
-			buffPos=0;
-			//Clear int
-			SET_PERI_REG_MASK(SLC_INT_CLR,   SLC_RX_DONE_INT_CLR);
-			CLEAR_PERI_REG_MASK(SLC_INT_CLR, SLC_RX_DONE_INT_CLR);
-		}
-	} while (buffPos==DMABUFLEN);
-
-	i2sBuf[backBuffNo][buffPos++]=samp;
+void i2sTxSamps(unsigned int *samp) {
 }
 
 
@@ -216,12 +205,35 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 	static int err=0;
 	unsigned int samp;
 	//short_sample_buff is signed integer
+
+	do {
+//		printf("int %x\n", (READ_PERI_REG(SLC_INT_RAW)));
+		if((READ_PERI_REG(SLC_INT_RAW) & SLC_RX_DONE_INT_RAW)) {
+			printf("%d %d\n", backBuffNo, buffPos);
+			//Send current back buffer (will be front buffer)to the DMA
+			CLEAR_PERI_REG_MASK(SLC_TX_LINK,SLC_TXLINK_DESCADDR_MASK);
+			SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[backBuffNo]) & SLC_TXLINK_DESCADDR_MASK);
+			CLEAR_PERI_REG_MASK(SLC_RX_LINK,SLC_RXLINK_DESCADDR_MASK);
+			SET_PERI_REG_MASK(SLC_RX_LINK, ((uint32)&i2sBufDesc[backBuffNo?0:1]) & SLC_RXLINK_DESCADDR_MASK);
+			//Start transmission again
+			SET_PERI_REG_MASK(SLC_TX_LINK, SLC_TXLINK_START);
+			SET_PERI_REG_MASK(SLC_RX_LINK, SLC_RXLINK_START);
+			//exchange front and back buffer
+			backBuffNo=(backBuffNo==1)?0:1; 
+			buffPos=0;
+			//Clear int
+			SET_PERI_REG_MASK(SLC_INT_CLR,   SLC_RX_DONE_INT_CLR);
+			CLEAR_PERI_REG_MASK(SLC_INT_CLR, SLC_RX_DONE_INT_CLR);
+		}
+	} while (buffPos>(DMABUFLEN-no_samples));
+
+
 	
 	for (i=0; i<no_samples; i++) {
 //		samp=(short_sample_buff[i]);
 //		samp=(samp)&0xffff;
 //		samp=(samp<<16)|samp;
-		i2sTxSamp(short_sample_buff[i]);
+		i2sBuf[backBuffNo][buffPos++]=short_sample_buff[i];
 	}
 }
 
