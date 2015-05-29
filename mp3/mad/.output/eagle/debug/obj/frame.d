@@ -26,4 +26,4 @@
  ../../extra_include/sys/reent.h ../../extra_include/_ansi.h \
  ../../extra_include/sys/_types.h ../../extra_include/sys/lock.h \
  ../../extra_include/machine/stdlib.h ../../extra_include/alloca.h bit.h \
- stream.h frame.h fixed.h timer.h layer12.h layer3.h
+ stream.h frame.h fixed.h timer.h layer3.h

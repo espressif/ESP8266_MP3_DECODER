@@ -41,6 +41,8 @@
 static inline
 signed int scale(mad_fixed_t sample)
 {
+  return sample >> (MAD_F_FRACBITS + 1 - 14);
+
   /* round */
   sample += (1L << (MAD_F_FRACBITS - 16));
 
@@ -143,6 +145,7 @@ void ICACHE_FLASH_ATTR mad_synth_mute(struct mad_synth *synth)
  * NAME:	dct32()
  * DESCRIPTION:	perform fast in[32]->out[32] DCT
  */
+
 static
 void ICACHE_FLASH_ATTR dct32(mad_fixed_t const in[32], unsigned int slot,
 	   mad_fixed_t lo[16][8], mad_fixed_t hi[16][8])
@@ -565,8 +568,11 @@ void ICACHE_FLASH_ATTR dct32(mad_fixed_t const in[32], unsigned int slot,
 #  endif
 # endif
 
+
+
+
 static
-mad_fixed_t const ICACHE_RODATA_ATTR D[17][32] = {
+mad_fixed_t ICACHE_RODATA_ATTR const D[17][32] = {
 # include "D.dat"
 };
 
@@ -579,7 +585,7 @@ void ICACHE_FLASH_ATTR synth_full(struct mad_synth *, struct mad_frame const *,
  * DESCRIPTION:	perform full frequency PCM synthesis
  */
 static
-void ICACHE_FLASH_ATTR synth_full(struct mad_synth *synth, struct mad_frame const *frame,
+void ICACHE_FLASH_ATTR  synth_full(struct mad_synth *synth, struct mad_frame const *frame,
 		unsigned int nch, unsigned int ns)
 {
   unsigned int phase, ch, s, sb, pe, po;
@@ -903,7 +909,8 @@ void ICACHE_FLASH_ATTR mad_synth_frame(struct mad_synth *synth, struct mad_frame
   synth->pcm.samplerate = frame->header.samplerate;
   set_dac_sample_rate(synth->pcm.samplerate);
   synth->pcm.channels   = nch;
-  synth->pcm.length     = 32 * ns;
+//  synth->pcm.length     = 32 * ns;
+  synth->pcm.length     = 128 * ns;
 
   synth_frame = synth_full;
 

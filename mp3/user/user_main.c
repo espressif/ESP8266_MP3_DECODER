@@ -22,20 +22,13 @@
 #include "i2s_reg.h"
 #include "slc_register.h"
 #include "sdio_slv.h"
-
-/*
-Mem usage:
-layer3: 744 bytes rodata
-*/
+#include "spiram.h"
 
 
 #define server_ip "192.168.40.117"
 //#define server_ip "192.168.1.4"
 //#define server_ip "192.168.4.100"
 #define server_port 1234
-
-//#define UART_AUDIO
-#define I2S_AUDIO
 
 
 struct madPrivateData {
@@ -47,17 +40,10 @@ struct madPrivateData {
 	int fifoWaddr;
 };
 
-#ifdef UART_AUDIO
-#define printf(a, ...) while(0)
-#endif
 
 #define SPIRAMSIZE (128*1024)
 #define SPIREADSIZE 64 		//in bytes, needs to be multiple of 4
 
-#define SPI 			0
-#define HSPI			1
-
-#ifdef I2S_AUDIO
 
 #define i2c_bbpll                                 0x67
 #define i2c_bbpll_en_audio_clock_out            4
@@ -167,119 +153,21 @@ void i2sSetRate(int rate) {
 
 
 void i2sTxSamp(unsigned int samp) {
-	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW));
+/*
+	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW))  printf("w");
 
 	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
 	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
 
-/*
-	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_REMPTY_INT_RAW));
+	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_REMPTY_INT_RAW)) printf("w");
 
 	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR);
 	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR);
 */
 	WRITE_PERI_REG(I2STXFIFO, samp);
-}
-
-#endif
-
-
-void ICACHE_FLASH_ATTR spiRamInit() {
-	 //hspi overlap to spi, two spi masters on cspi
-	//#define HOST_INF_SEL 0x3ff00028 
-	SET_PERI_REG_MASK(0x3ff00028, BIT(7));
-	//SET_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
-
-	//set higher priority for spi than hspi
-	SET_PERI_REG_MASK(SPI_EXT3(SPI), 0x1);
-	SET_PERI_REG_MASK(SPI_EXT3(HSPI), 0x3);
-	SET_PERI_REG_MASK(SPI_USER(HSPI), BIT(5));
-
-	//select HSPI CS2 ,disable HSPI CS0 and CS1
-	CLEAR_PERI_REG_MASK(SPI_PIN(HSPI), SPI_CS2_DIS);
-	SET_PERI_REG_MASK(SPI_PIN(HSPI), SPI_CS0_DIS |SPI_CS1_DIS);
-
-	//SET IO MUX FOR GPIO0 , SELECT PIN FUNC AS SPI CS2
-	//IT WORK AS HSPI CS2 AFTER OVERLAP(THERE IS NO PIN OUT FOR NATIVE HSPI CS1/2)
-	PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_SPICS2);
-
-	WRITE_PERI_REG(SPI_CLOCK(HSPI), 
-					(((1)&SPI_CLKDIV_PRE)<<SPI_CLKDIV_PRE_S)|
-					(((2)&SPI_CLKCNT_N)<<SPI_CLKCNT_N_S)|
-					(((2)&SPI_CLKCNT_H)<<SPI_CLKCNT_H_S)|
-					(((1)&SPI_CLKCNT_L)<<SPI_CLKCNT_L_S));
 
 }
 
-#define SPI_W(i, j)                   (REG_SPI_BASE(i) + 0x40 + ((j)*4))
-
-
-//n=1..64
-void spiRamRead(int addr, char *buff, int len) {
-	int i;
-	int *p=(int*)buff;
-	SET_PERI_REG_MASK(SPI_USER(HSPI), SPI_CS_SETUP|SPI_CS_HOLD|SPI_USR_COMMAND|SPI_USR_ADDR|SPI_USR_MISO);
-	CLEAR_PERI_REG_MASK(SPI_USER(HSPI), SPI_FLASH_MODE|SPI_USR_MOSI);
-	WRITE_PERI_REG(SPI_USER1(HSPI), ((0&SPI_USR_MOSI_BITLEN)<<SPI_USR_MOSI_BITLEN_S)| //no data out
-			((((8*len)-1)&SPI_USR_MISO_BITLEN)<<SPI_USR_MISO_BITLEN_S)| //len bits of data in
-			((23&SPI_USR_ADDR_BITLEN)<<SPI_USR_ADDR_BITLEN_S)); //address is 24 bits A0-A23
-	WRITE_PERI_REG(SPI_ADDR(HSPI), addr<<8); //write address
-	WRITE_PERI_REG(SPI_USER2(HSPI), (((7&SPI_USR_COMMAND_BITLEN)<<SPI_USR_COMMAND_BITLEN_S) | 0x03));
-	SET_PERI_REG_MASK(SPI_CMD(HSPI), SPI_USR);
-	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
-	for (i=0; i<(len+3)/4; i++) {
-		p[i]=READ_PERI_REG(SPI_W(HSPI, i));
-	}
-}
-
-//n=1..64
-void spiRamWrite(int addr, char *buff, int len) {
-	int i;
-	int *p=(int*)buff;
-	SET_PERI_REG_MASK(SPI_USER(HSPI), SPI_CS_SETUP|SPI_CS_HOLD|SPI_USR_COMMAND|SPI_USR_ADDR|SPI_USR_MOSI);
-	CLEAR_PERI_REG_MASK(SPI_USER(HSPI), SPI_FLASH_MODE|SPI_USR_MISO);
-	WRITE_PERI_REG(SPI_USER1(HSPI), ((((8*len)-1)&SPI_USR_MOSI_BITLEN)<<SPI_USR_MOSI_BITLEN_S)| //len bitsbits of data out
-			((0&SPI_USR_MISO_BITLEN)<<SPI_USR_MISO_BITLEN_S)| //no data in
-			((23&SPI_USR_ADDR_BITLEN)<<SPI_USR_ADDR_BITLEN_S)); //address is 24 bits A0-A23
-	WRITE_PERI_REG(SPI_ADDR(HSPI), addr<<8); //write address
-	WRITE_PERI_REG(SPI_USER2(HSPI), (((7&SPI_USR_COMMAND_BITLEN)<<SPI_USR_COMMAND_BITLEN_S) | 0x02));
-	for (i=0; i<(len+3)/4; i++) {
-		WRITE_PERI_REG(SPI_W(HSPI, (i)), p[i]);
-	}
-	SET_PERI_REG_MASK(SPI_CMD(HSPI), SPI_USR);
-	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
-}
-
-
-void ICACHE_FLASH_ATTR spiRamTest() {
-	int x;
-	int err=0;
-	char a[64];
-	char b[64];
-	char aa, bb;
-	for (x=0; x<64; x++) {
-		a[x]=x^(x<<2);
-		b[x]=x;
-	}
-	spiRamWrite(0x0, a, 64);
-	spiRamWrite(0x100, b, 64);
-
-	spiRamRead(0x0, a, 64);
-	spiRamRead(0x100, b, 64);
-	for (x=0; x<64; x++) {
-		aa=x^(x<<2);
-		bb=x;
-		if (aa!=a[x]) {
-			err=1;
-//			printf("aa: 0x%x != 0x%x\n", aa, a[x]);
-		}
-		if (bb!=b[x]) {
-			err=1;
-//			printf("bb: 0x%x != 0x%x\n", bb, b[x]);
-		}
-	}
-	while(err);
-}
 
 
 struct madPrivateData madParms;
@@ -287,22 +175,21 @@ struct madPrivateData madParms;
 void render_sample_block(short *short_sample_buff, int no_samples) {
 	int i, s;
 	static int err=0;
-	char samp[]={0x00, 0x01, 0x11, 0x15, 0x55, 0x75, 0x77, 0xf7, 0xff};
-#ifdef UART_AUDIO
+	unsigned int samp;
+	//short_sample_buff is signed integer
+	
 	for (i=0; i<no_samples; i++) {
-		s=short_sample_buff[i];
-		s+=err;
-		if (s>32867) s=32767;
-		if (s<-32768) s=-32768;
-		uart_tx_one_char(0, samp[(s >> 13)+4]);
-		err=s-((s>>13)<<14);
+		while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW));//  printf("w");
+//		printf(".");
+/*
+		samp=(short_sample_buff[i]);
+		samp=(samp)&0xffff;
+		samp=(samp<<16)|samp;
+*/
+		SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
+		CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
+		WRITE_PERI_REG(I2STXFIFO, short_sample_buff[i]);
 	}
-#endif
-#ifdef I2S_AUDIO
-	for (i=0; i<no_samples; i++) {
-		i2sTxSamp(short_sample_buff[i]|(short_sample_buff[i]<<16));
-	}
-#endif
 //	printf("rsb %04x %04x\n", short_sample_buff[0], short_sample_buff[1]);
 }
 
@@ -314,9 +201,14 @@ void set_dac_sample_rate(int rate) {
 #define READBUFSZ (2106+64)
 static char readBuf[READBUFSZ]; 
 
-void ICACHE_FLASH_ATTR memcpyAligned(char *dst, char *src, int len) {
+void memcpyAligned(char *dst, char *src, int len) {
 	int x;
 	int w, b;
+	if (((int)dst&3)==0 && ((int)src&3)==0) {
+		memcpy(dst, src, len);
+		return;
+	}
+
 	for (x=0; x<len; x++) {
 		b=((int)src&3);
 		w=*((int *)(src-b));
@@ -411,7 +303,7 @@ int ICACHE_FLASH_ATTR openConn() {
 void ICACHE_FLASH_ATTR tskmad(void *pvParameters){
 	struct mad_decoder decoder;
 	struct madPrivateData *p=&madParms; //pvParameters;
-//	printf("MAD: Decoder init.\n");
+	printf("MAD: Decoder start.\n");
 	mad_decoder_init(&decoder, p, input, 0, 0 , output, error, 0);
 	mad_decoder_run(&decoder, MAD_DECODER_MODE_SYNC);
 	mad_decoder_finish(&decoder);
@@ -484,8 +376,7 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 	free(config);
 //	printf("Connection thread done.\n");
 
-	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 3, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
-//	while(1) printf("---> %x\n", (READ_PERI_REG((SLC_TX_LINK))));
+	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 2, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
 	vTaskDelete(NULL);
 }
 
@@ -498,14 +389,7 @@ user_init(void)
 	SET_PERI_REG_MASK(0x3ff00014, BIT(0));
 	os_update_cpu_frequency(160);
 	
-#ifdef UART_AUDIO
-	UART_SetBaudrate(0, 481000);
-#else
-	UART_SetBaudrate(0, 115200);
-#endif
-#ifdef I2S_AUDIO
 	i2sInit();
-#endif
 	spiRamInit();
 	spiRamTest();
 
