@@ -19,6 +19,7 @@
  * $Id: layer3.c,v 1.43 2004/01/23 09:41:32 rob Exp $
  */
 
+
 # ifdef HAVE_CONFIG_H
 #  include "config.h"
 # endif
@@ -45,6 +46,7 @@
 # include "huffman.h"
 # include "layer3.h"
 #include "align.h"
+
 
 /* --- Layer III ----------------------------------------------------------- */
 
@@ -143,9 +145,8 @@ unsigned char const ICACHE_RODATA_ATTR sfb_48000_long[] = {
   12, 16, 18, 22, 28, 34, 40, 46, 54,  54, 192
 };
 
-// ICACHE_RODATA_ATTR 
 static
-unsigned char const sfb_44100_long[] = {
+unsigned ICACHE_RODATA_ATTR  char const sfb_44100_long[] = {
    4,  4,  4,  4,  4,  4,  6,  6,  8,   8,  10,
   12, 16, 20, 24, 28, 34, 42, 50, 54,  76, 158
 };
@@ -163,9 +164,8 @@ unsigned char const ICACHE_RODATA_ATTR sfb_48000_short[] = {
   14, 16, 16, 16, 20, 20, 20, 26, 26, 26, 66, 66, 66
 };
 
-// ICACHE_RODATA_ATTR
 static
-unsigned char const sfb_44100_short[] = {
+unsigned ICACHE_RODATA_ATTR char const sfb_44100_short[] = {
    4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  6,
    6,  6,  8,  8,  8, 10, 10, 10, 12, 12, 12, 14, 14,
   14, 18, 18, 18, 22, 22, 22, 30, 30, 30, 56, 56, 56
@@ -186,9 +186,8 @@ unsigned char const ICACHE_RODATA_ATTR sfb_48000_mixed[] = {
               16, 20, 20, 20, 26, 26, 26, 66, 66, 66
 };
 
-//ICACHE_RODATA_ATTR 
 static
-unsigned char const sfb_44100_mixed[] = {
+unsigned ICACHE_RODATA_ATTR  char const sfb_44100_mixed[] = {
   /* long */   4,  4,  4,  4,  4,  4,  6,  6,
   /* short */  4,  4,  4,  6,  6,  6,  8,  8,  8, 10,
               10, 10, 12, 12, 12, 14, 14, 14, 18, 18,

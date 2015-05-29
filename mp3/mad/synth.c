@@ -30,6 +30,7 @@
 # include "synth.h"
 # include "string.h"
 
+
 /*
  * The following utility routine performs simple rounding, clipping, and
  * scaling of MAD's high-resolution samples down to 16 bits. It does not
