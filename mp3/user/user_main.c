@@ -43,6 +43,7 @@ struct madPrivateData {
 
 #define SPIRAMSIZE (128*1024)
 #define SPIREADSIZE 64 		//in bytes, needs to be multiple of 4
+#define SPILOWMARK (96*1024) //don't start reading until spi ram is emptied till this mark
 
 
 #define i2c_bbpll                                 0x67
@@ -59,7 +60,7 @@ struct madPrivateData {
       i2c_readReg_Mask(block, block##_hostid,  reg_add,  reg_add##_msb,  reg_add##_lsb)
 
 
-#define DMABUFLEN 200
+#define DMABUFLEN (32*6)
 unsigned int i2sBuf[2][DMABUFLEN];
 struct sdio_queue i2sBufDesc[2];
 
@@ -67,7 +68,7 @@ struct sdio_queue i2sBufDesc[2];
 void ICACHE_FLASH_ATTR i2sInit() {
 	int x;
 
-	//Test: Fill sample buffer with crap
+	//Clear sample byffer. We don't want noise.
 	for (x=0; x<DMABUFLEN; x++) {
 		i2sBuf[0][x]=0;
 		i2sBuf[1][x]=0;
@@ -92,8 +93,8 @@ void ICACHE_FLASH_ATTR i2sInit() {
 		i2sBufDesc[x].owner=1;
 		i2sBufDesc[x].eof=1;
 		i2sBufDesc[x].sub_sof=0;
-		i2sBufDesc[x].datalen=DMABUFLEN;
-		i2sBufDesc[x].blocksize=DMABUFLEN;
+		i2sBufDesc[x].datalen=DMABUFLEN*4;
+		i2sBufDesc[x].blocksize=DMABUFLEN*4;
 		i2sBufDesc[x].buf_ptr=(uint32_t)&i2sBuf[x];
 		i2sBufDesc[x].unused=0;
 		i2sBufDesc[x].next_link_ptr=0;
@@ -189,16 +190,10 @@ void i2sSetRate(int rate) {
 */
 }
 
+struct madPrivateData madParms;
 
 int backBuffNo=0;
 int buffPos=0;
-
-void i2sTxSamps(unsigned int *samp) {
-}
-
-
-
-struct madPrivateData madParms;
 
 void render_sample_block(short *short_sample_buff, int no_samples) {
 	int i, s;
@@ -206,10 +201,15 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 	unsigned int samp;
 	//short_sample_buff is signed integer
 
-	do {
+	if(((READ_PERI_REG(SLC_INT_RAW) & SLC_RX_DONE_INT_RAW)) && buffPos!=DMABUFLEN) {
+		printf("O");
+		buffPos=DMABUFLEN;
+	}
+
+	while (buffPos==DMABUFLEN) {
 //		printf("int %x\n", (READ_PERI_REG(SLC_INT_RAW)));
 		if((READ_PERI_REG(SLC_INT_RAW) & SLC_RX_DONE_INT_RAW)) {
-			printf("%d %d\n", backBuffNo, buffPos);
+//			printf("%d %d\n", backBuffNo, buffPos);
 			//Send current back buffer (will be front buffer)to the DMA
 			CLEAR_PERI_REG_MASK(SLC_TX_LINK,SLC_TXLINK_DESCADDR_MASK);
 			SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[backBuffNo]) & SLC_TXLINK_DESCADDR_MASK);
@@ -225,14 +225,14 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 			SET_PERI_REG_MASK(SLC_INT_CLR,   SLC_RX_DONE_INT_CLR);
 			CLEAR_PERI_REG_MASK(SLC_INT_CLR, SLC_RX_DONE_INT_CLR);
 		}
-	} while (buffPos>(DMABUFLEN-no_samples));
+	}
 
 
 	
 	for (i=0; i<no_samples; i++) {
-//		samp=(short_sample_buff[i]);
-//		samp=(samp)&0xffff;
-//		samp=(samp<<16)|samp;
+		samp=(short_sample_buff[i]);
+		samp=(samp)&0xffff;
+		samp=(samp<<16)|samp;
 		i2sBuf[backBuffNo][buffPos++]=short_sample_buff[i];
 	}
 }
@@ -267,7 +267,7 @@ void memcpyAligned(char *dst, char *src, int len) {
 
 static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *stream) {
 	int n, i;
-	int rem, canRead;
+	int rem, fifoLen;
 	char rbuf[SPIREADSIZE];
 	struct madPrivateData *p = (struct madPrivateData*)data;
 	//Shift remaining contents of buf to the front
@@ -277,13 +277,13 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *str
 	//Wait until there is enough data in the buffer. This only happens when the data feed rate is too low, and shouldn't normally be needed!
 	do {
 		xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
-		canRead=((p->fifoLen)>=(sizeof(readBuf)-rem));
+		fifoLen=p->fifoLen;
 		xSemaphoreGive(p->muxBufferBusy);
-		if (!canRead) {
+		if (fifoLen<(sizeof(readBuf)-rem)) {
 			printf("Buf uflow %d < %d \n", (p->fifoLen), (sizeof(readBuf)-rem));
 			vTaskDelay(100/portTICK_RATE_MS);
 		}
-	} while (!canRead);
+	} while (fifoLen<(sizeof(readBuf)-rem));
 
 	while (rem<=(READBUFSZ-64)) {
 		//Grab 64 bytes of data from the SPI RAM fifo
@@ -299,8 +299,8 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *str
 		rem+=sizeof(rbuf);
 	}
 
-	//Let reader thread read more data.
-	xSemaphoreGive(p->semNeedRead);
+	//Let reader thread read more data if needed
+	if (fifoLen<SPILOWMARK) xSemaphoreGive(p->semNeedRead);
 
 	//Okay, decode the buffer.
 	mad_stream_buffer(stream, readBuf, rem);
@@ -363,7 +363,7 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 	p->fd=-1;
 	while(1) {
 		if (p->fd==-1) p->fd=openConn();
-//		printf("Reading into SPI buffer...\n");
+		printf("Reading into SPI buffer...\n");
 		do {
 			//Grab amount of buffer full-ness
 			xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
@@ -390,10 +390,11 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 		} while (inBuf<(SPIRAMSIZE-64));
 		if (!madRunning) {
 			//tskMad seems to need at least 2450 bytes of RAM.
+			//Max prio is 2; nore interferes with freertos.
 			if (xTaskCreate(tskmad, "tskmad", 2450, NULL, 2, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task!\n");
 			madRunning=1;
 		}
-//		printf("Read done.\n");
+		printf("Read done.\n");
 		//Try to take the semaphore. This will wait until the mad task signals it needs more data.
 		xSemaphoreTake(p->semNeedRead, portMAX_DELAY);
 	}
@@ -421,7 +422,7 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 //	printf("Connection thread done.\n");
 
 	i2sInit();
-	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 2, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
+	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 3, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
 	vTaskDelete(NULL);
 }
 
