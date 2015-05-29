@@ -61,14 +61,48 @@ struct madPrivateData {
 
 #define DMABUFLEN 128
 unsigned int i2sBuf[2][DMABUFLEN];
-struct sdio_queue i2sBufDesc[2];
+struct sdio_queue i2sBufDesc[3];
 
 
 void ICACHE_FLASH_ATTR i2sInit() {
 	int x;
-//	printf("i2sInit()\n");
-	//Init pins to i2s functions
 
+	//Test: Fill sample buffer with crap
+	for (x=0; x<DMABUFLEN; x++) {
+		i2sBuf[0][x]=0;
+		i2sBuf[1][x]=0xffffffff;
+	}
+
+	//Reset DMA
+	SET_PERI_REG_MASK(SLC_CONF0, SLC_RXLINK_RST|SLC_TXLINK_RST);
+	CLEAR_PERI_REG_MASK(SLC_CONF0, SLC_RXLINK_RST|SLC_TXLINK_RST);
+	//Enable and configure DMA
+	CLEAR_PERI_REG_MASK(SLC_CONF0, (SLC_MODE<<SLC_MODE_S));
+	SET_PERI_REG_MASK(SLC_CONF0,(1<<SLC_MODE_S));
+	SET_PERI_REG_MASK(SLC_RX_DSCR_CONF,SLC_INFOR_NO_REPLACE|SLC_TOKEN_NO_REPLACE);
+	CLEAR_PERI_REG_MASK(SLC_RX_DSCR_CONF, SLC_RX_FILL_EN|SLC_RX_EOF_MODE | SLC_RX_FILL_MODE);
+
+	//Initialize 2 DMA buffer things
+	for (x=0; x<2; x++) {
+		i2sBufDesc[x].owner=1;
+		i2sBufDesc[x].eof=1;
+		i2sBufDesc[x].sub_sof=0;
+		i2sBufDesc[x].buf_ptr=(uint32_t)&i2sBuf[x];
+		i2sBufDesc[x].unused=0;
+		i2sBufDesc[x].next_link_ptr=0;
+	}
+	
+	//Feed dma the 1st buffer desc addr
+	CLEAR_PERI_REG_MASK(SLC_TX_LINK,SLC_TXLINK_DESCADDR_MASK);
+	SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[1]) & SLC_TXLINK_DESCADDR_MASK);
+	CLEAR_PERI_REG_MASK(SLC_RX_LINK,SLC_RXLINK_DESCADDR_MASK);
+	SET_PERI_REG_MASK(SLC_RX_LINK, ((uint32)&i2sBufDesc[0]) & SLC_RXLINK_DESCADDR_MASK);
+
+	//Start transmission
+	SET_PERI_REG_MASK(SLC_TX_LINK, SLC_TXLINK_START);
+	SET_PERI_REG_MASK(SLC_RX_LINK, SLC_RXLINK_START);
+
+	//Init pins to i2s functions
 	PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_I2SO_DATA);
 	PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_I2SO_WS);
 	PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDO_U, FUNC_I2SO_BCK);
@@ -81,8 +115,10 @@ void ICACHE_FLASH_ATTR i2sInit() {
 	SET_PERI_REG_MASK(I2SCONF,I2S_I2S_RESET_MASK);
 	CLEAR_PERI_REG_MASK(I2SCONF,I2S_I2S_RESET_MASK);
 
-	//Select 16bits per channel(FIFO_MOD=0), no DMA access (FIFO only)
+	//Select 16bits per channel (FIFO_MOD=0), no DMA access (FIFO only)
 	CLEAR_PERI_REG_MASK(I2S_FIFO_CONF, I2S_I2S_DSCR_EN|(I2S_I2S_RX_FIFO_MOD<<I2S_I2S_RX_FIFO_MOD_S)|(I2S_I2S_TX_FIFO_MOD<<I2S_I2S_TX_FIFO_MOD_S));
+	//Enable DMA in i2s subsystem
+	SET_PERI_REG_MASK(I2S_FIFO_CONF, I2S_I2S_DSCR_EN);
 
 	//tx/rx binaureal
 	CLEAR_PERI_REG_MASK(I2SCONF_CHAN, (I2S_TX_CHAN_MOD<<I2S_TX_CHAN_MOD_S)|(I2S_RX_CHAN_MOD<<I2S_RX_CHAN_MOD_S));
@@ -93,7 +129,7 @@ void ICACHE_FLASH_ATTR i2sInit() {
 	//Clear int
 	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
 			I2S_I2S_RX_WFULL_INT_CLR|I2S_I2S_PUT_DATA_INT_CLR|I2S_I2S_TAKE_DATA_INT_CLR);
-	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
+	CLEAR_PERI_REG_MASK(I2SINT_CLR, I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
 			I2S_I2S_RX_WFULL_INT_CLR|I2S_I2S_PUT_DATA_INT_CLR|I2S_I2S_TAKE_DATA_INT_CLR);
 
 	//trans master&rece slave,MSB shift,right_first,msb right
@@ -106,35 +142,29 @@ void ICACHE_FLASH_ATTR i2sInit() {
 						((16&I2S_BCK_DIV_NUM )<<I2S_BCK_DIV_NUM_S)|
 						((7&I2S_CLKM_DIV_NUM)<<I2S_CLKM_DIV_NUM_S));
 
-	//Reset DMA
-	SET_PERI_REG_MASK(SLC_CONF0, SLC_RXLINK_RST|SLC_TXLINK_RST);
-	CLEAR_PERI_REG_MASK(SLC_CONF0, SLC_RXLINK_RST|SLC_TXLINK_RST);
-	//Enable and configure DMA
-	CLEAR_PERI_REG_MASK(SLC_CONF0, (SLC_MODE<<SLC_MODE_S));
-	SET_PERI_REG_MASK(SLC_CONF0,(1<<SLC_MODE_S));
-	SET_PERI_REG_MASK(SLC_RX_DSCR_CONF,SLC_INFOR_NO_REPLACE|SLC_TOKEN_NO_REPLACE);
-	CLEAR_PERI_REG_MASK(SLC_RX_DSCR_CONF, SLC_RX_FILL_EN|SLC_RX_EOF_MODE | SLC_RX_FILL_MODE);
-	//Enable DMA in i2s subsystem
-	SET_PERI_REG_MASK(I2S_FIFO_CONF, I2S_I2S_DSCR_EN);
 
-	//Initialize 2 DMA buffer things
-	for (x=0; x<2; x++) {
-		i2sBufDesc[x].owner=1;
-		i2sBufDesc[x].eof=0;
-		i2sBufDesc[x].sub_sof=0;
-		i2sBufDesc[x].datalen=512;
-		i2sBufDesc[x].blocksize=0;
-		i2sBufDesc[x].buf_ptr=(uint32_t)&i2sBuf[x];
-		i2sBufDesc[x].unused=0;
-	}
-	i2sBufDesc[0].next_link_ptr=(uint32_t)&i2sBufDesc[1];
-	i2sBufDesc[1].next_link_ptr=(uint32_t)&i2sBufDesc[0];
-	
-	CLEAR_PERI_REG_MASK(SLC_TX_LINK,SLC_TXLINK_DESCADDR_MASK);
-	SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[0]) & SLC_TXLINK_DESCADDR_MASK);
+
+	//No idea if ints are needed...
+	//clear int
+	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
+			I2S_I2S_RX_WFULL_INT_CLR|I2S_I2S_PUT_DATA_INT_CLR|I2S_I2S_TAKE_DATA_INT_CLR);
+	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
+			I2S_I2S_RX_WFULL_INT_CLR|I2S_I2S_PUT_DATA_INT_CLR|I2S_I2S_TAKE_DATA_INT_CLR);
+	//enable int
+	SET_PERI_REG_MASK(I2SINT_ENA,   I2S_I2S_TX_REMPTY_INT_ENA|I2S_I2S_TX_WFULL_INT_ENA|
+	I2S_I2S_RX_REMPTY_INT_ENA|I2S_I2S_TX_PUT_DATA_INT_ENA|I2S_I2S_RX_TAKE_DATA_INT_ENA);
+
 
 	//Start transmit
 	SET_PERI_REG_MASK(I2SCONF,I2S_I2S_TX_START);
+
+	SET_PERI_REG_MASK(SLC_INT_CLR,  0xffffffff);
+	CLEAR_PERI_REG_MASK(SLC_INT_CLR,  0xffffffff);
+/*
+	while(1) {
+		printf("SLC_INT_RAW %x %x\n", READ_PERI_REG(SLC_INT_RAW), READ_PERI_REG(SLC_TX_STATUS));
+	}
+*/
 }
 
 
@@ -152,20 +182,29 @@ void i2sSetRate(int rate) {
 }
 
 
+int backBuffNo=0;
+int buffPos=0;
+
 void i2sTxSamp(unsigned int samp) {
-/*
-	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW))  printf("w");
+	do {
+		if((READ_PERI_REG(SLC_INT_RAW) & SLC_RX_DONE_INT_RAW)) {
+			printf("%d %d\n", backBuffNo, buffPos);
+			//Send current back buffer (will be front buffer)to the DMA
+			CLEAR_PERI_REG_MASK(SLC_TX_LINK,SLC_TXLINK_DESCADDR_MASK);
+			SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[backBuffNo]) & SLC_TXLINK_DESCADDR_MASK);
+			//Start transmission again
+			SET_PERI_REG_MASK(SLC_TX_LINK, SLC_TXLINK_START);
+			SET_PERI_REG_MASK(SLC_RX_LINK, SLC_RXLINK_START);
+			//exchange front and back buffer
+			backBuffNo=(backBuffNo==1)?0:1; 
+			buffPos=0;
+			//Clear int
+			SET_PERI_REG_MASK(SLC_INT_CLR,   SLC_RX_DONE_INT_CLR);
+			CLEAR_PERI_REG_MASK(SLC_INT_CLR, SLC_RX_DONE_INT_CLR);
+		}
+	} while (buffPos==DMABUFLEN);
 
-	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
-	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
-
-	while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_REMPTY_INT_RAW)) printf("w");
-
-	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR);
-	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR);
-*/
-	WRITE_PERI_REG(I2STXFIFO, samp);
-
+	i2sBuf[backBuffNo][buffPos++]=samp;
 }
 
 
@@ -179,18 +218,11 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 	//short_sample_buff is signed integer
 	
 	for (i=0; i<no_samples; i++) {
-		while(!(READ_PERI_REG(I2SINT_RAW) & I2S_I2S_TX_PUT_DATA_INT_RAW));//  printf("w");
-//		printf(".");
-/*
-		samp=(short_sample_buff[i]);
-		samp=(samp)&0xffff;
-		samp=(samp<<16)|samp;
-*/
-		SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
-		CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_PUT_DATA_INT_CLR);
-		WRITE_PERI_REG(I2STXFIFO, short_sample_buff[i]);
+//		samp=(short_sample_buff[i]);
+//		samp=(samp)&0xffff;
+//		samp=(samp<<16)|samp;
+		i2sTxSamp(short_sample_buff[i]);
 	}
-//	printf("rsb %04x %04x\n", short_sample_buff[0], short_sample_buff[1]);
 }
 
 void set_dac_sample_rate(int rate) {
@@ -376,12 +408,12 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 	free(config);
 //	printf("Connection thread done.\n");
 
+	i2sInit();
 	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 2, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
 	vTaskDelete(NULL);
 }
 
 extern void os_update_cpu_frequency(int mhz);
-
 
 void ICACHE_FLASH_ATTR
 user_init(void)
@@ -389,7 +421,7 @@ user_init(void)
 	SET_PERI_REG_MASK(0x3ff00014, BIT(0));
 	os_update_cpu_frequency(160);
 	
-	i2sInit();
+	UART_SetBaudrate(0, 115200);
 	spiRamInit();
 	spiRamTest();
 
