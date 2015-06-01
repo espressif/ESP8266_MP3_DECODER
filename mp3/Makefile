@@ -31,16 +31,17 @@ endif # } PDIR
 APPDIR = .
 LDDIR = ../ld
 
-CCFLAGS += -Os 
-#\
+CCFLAGS += -Os
+
+#
 #	-fdata-sections -ffast-math -fmerge-all-constants -fomit-frame-pointer -funroll-loops \
 
 
 TARGET_LDFLAGS =		\
 	-nostdlib		\
 	-Wl,-EL \
+	-Wl--relax \
 	--longcalls \
-	--text-section-literals
 
 ifeq ($(FLAVOR),debug)
     TARGET_LDFLAGS += -g -Os

@@ -18,14 +18,17 @@
 #include "lwip/dns.h"
 #include "lwip/netdb.h"
 
-#include "mad.h"
+#include "../mad/mad.h"
+#include "../mad/stream.h"
+#include "../mad/frame.h"
+#include "../mad/synth.h"
 #include "i2s_reg.h"
 #include "slc_register.h"
 #include "sdio_slv.h"
 #include "spiram.h"
 
-
-#define server_ip "192.168.40.117"
+#define server_ip "192.168.12.1"
+//#define server_ip "192.168.40.117"
 //#define server_ip "192.168.1.4"
 //#define server_ip "192.168.4.100"
 #define server_port 1234
@@ -60,7 +63,7 @@ struct madPrivateData {
       i2c_readReg_Mask(block, block##_hostid,  reg_add,  reg_add##_msb,  reg_add##_lsb)
 
 
-#define DMABUFLEN (32*6)
+#define DMABUFLEN (32*13)
 unsigned int i2sBuf[2][DMABUFLEN];
 struct sdio_queue i2sBufDesc[2];
 
@@ -319,6 +322,49 @@ static enum mad_flow ICACHE_FLASH_ATTR error(void *data, struct mad_stream *stre
 }
 
 
+
+
+
+
+void ICACHE_FLASH_ATTR tskmad(void *pvParameters){
+	int r;
+	struct madPrivateData *p=&madParms; //pvParameters;
+	struct mad_stream *stream;
+	struct mad_frame *frame;
+	struct mad_synth *synth;
+	int t=0;
+
+	stream=malloc(sizeof(struct mad_stream));
+	frame=malloc(sizeof(struct mad_frame));
+	synth=malloc(sizeof(struct mad_synth));
+
+	printf("MAD: Decoder start.\n");
+	mad_stream_init(stream);
+	mad_frame_init(frame);
+	mad_synth_init(synth);
+	while(1) {
+		input(p, stream); //calls mad_stream_buffer internally
+//		printf("Read input stream\n");
+		while(1) {
+			r=mad_frame_decode(frame, stream);
+			if (r==-1) {
+	 			if (!MAD_RECOVERABLE(stream->error))
+					break;
+				error(NULL, stream, frame);
+				continue;
+			}
+//			printf("Decoded\n");
+			mad_synth_frame(synth, frame);
+//			printf("Synth\n");
+		}
+//		if (malloc(16)!=NULL) t+=16;
+//		printf("Free: %d\n", t);
+	}
+//	printf("MAD: Decode done.\n");
+}
+
+
+
 int ICACHE_FLASH_ATTR openConn() {
 	while(1) {
 		int n, i;
@@ -344,15 +390,6 @@ int ICACHE_FLASH_ATTR openConn() {
 }
 
 
-void ICACHE_FLASH_ATTR tskmad(void *pvParameters){
-	struct mad_decoder decoder;
-	struct madPrivateData *p=&madParms; //pvParameters;
-	printf("MAD: Decoder start.\n");
-	mad_decoder_init(&decoder, p, input, 0, 0 , output, error, 0);
-	mad_decoder_run(&decoder, MAD_DECODER_MODE_SYNC);
-	mad_decoder_finish(&decoder);
-//	printf("MAD: Decode done.\n");
-}
 
 void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 	struct madPrivateData *p=&madParms;//pvParameters;
@@ -385,13 +422,14 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 				if (p->fifoWaddr>=SPIRAMSIZE) p->fifoWaddr-=SPIRAMSIZE;
 				p->fifoLen+=SPIREADSIZE;
 				xSemaphoreGive(p->muxBufferBusy);
+				taskYIELD(); //don't starve the mp3 output thread
 				if (n==0) break; //ToDo: Handle EOF better
 			}
 		} while (inBuf<(SPIRAMSIZE-64));
 		if (!madRunning) {
-			//tskMad seems to need at least 2450 bytes of RAM.
+			//tskMad seems to need at least 2060 bytes of RAM.
 			//Max prio is 2; nore interferes with freertos.
-			if (xTaskCreate(tskmad, "tskmad", 2450, NULL, 2, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task!\n");
+			if (xTaskCreate(tskmad, "tskmad", 2060, NULL, 1, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task!\n");
 			madRunning=1;
 		}
 		printf("Read done.\n");
@@ -412,8 +450,10 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 
 	struct station_config *config=malloc(sizeof(struct station_config));
 	memset(config, 0x00, sizeof(struct station_config));
-	sprintf(config->ssid, "wifi-2");
-	sprintf(config->password, "thesumof6+6=12");
+	sprintf(config->ssid, "testjmd");
+	sprintf(config->password, "pannenkoek");
+//	sprintf(config->ssid, "wifi-2");
+//	sprintf(config->password, "thesumof6+6=12");
 //	sprintf(config->ssid, "Sprite");
 //	sprintf(config->password, "pannenkoek");
 	wifi_station_set_config(config);
@@ -422,7 +462,7 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 //	printf("Connection thread done.\n");
 
 	i2sInit();
-	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 3, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
+	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 2, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
 	vTaskDelete(NULL);
 }
 

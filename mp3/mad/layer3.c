@@ -2526,11 +2526,9 @@ int ICACHE_FLASH_ATTR mad_layer_III(struct mad_stream *stream, struct mad_frame 
   struct sideinfo si;
   enum mad_error error;
   int result = 0, i;
-  static char madbuff[MAD_BUFFER_MDLEN];
   static mad_fixed_t ovlbuf[2 * 32 * 18];
 
   /* allocate Layer III dynamic structures */
-    stream->main_data=(void*)madbuff;
     frame->overlap=(void*)ovlbuf;
 	stream->main_data=&MainData;
 /*
