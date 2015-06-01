@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
 
 #include "lwip/sockets.h"
 #include "lwip/dns.h"
@@ -63,10 +64,65 @@ struct madPrivateData {
       i2c_readReg_Mask(block, block##_hostid,  reg_add,  reg_add##_msb,  reg_add##_lsb)
 
 
-#define DMABUFLEN (32*18)
+#define DMABUFLEN (32*4)
+#define DMABUFCNT (10)
+
 //unsigned int i2sBuf[2][DMABUFLEN];
-unsigned int *i2sBuf[2];
-struct sdio_queue i2sBufDesc[2];
+unsigned int *i2sBuf[DMABUFCNT];
+struct sdio_queue i2sBufDesc[DMABUFCNT];
+
+/*
+About the timings:
+configTICK_RATE_HZ is 100Hz on an 80MHz device.
+I think it's 200Hz here because we're running on a 160MHz clocked device, which should 
+give us 5MS granularity.
+
+Let's say the max output clock freq is 50KHz (48KHz plus some margin), that'd mean
+to bridge one tick we need to keep (50000*0.005=)250 samples in the DMA buffer to
+keep on truckin' if the CPU spends a tick in the task with a lower priority.
+*/
+
+
+#ifndef ETS_SLC_INUM
+//for sdks without this info
+#define ETS_SLC_INUM       1
+//#define ETS_SLC_INTR_ATTACH(func, arg) \
+//    ets_isr_attach(ETS_SLC_INUM, (func), (void *)(arg))
+//#define ETS_SLC_INTR_ENABLE()\
+//      ETS_INTR_ENABLE(ETS_SLC_INUM)
+//#define ETS_SLC_INTR_DISABLE()\
+//      ETS_INTR_DISABLE(ETS_SLC_INUM) 
+
+//#define ETS_INTR_ENABLE(inum) \
+//    ets_isr_unmask((1<<inum))
+
+
+#endif
+
+
+xQueueHandle dmaQueue;
+
+
+LOCAL void slc_isr(void) {
+	portBASE_TYPE HPTaskAwoken=0;
+	struct sdio_queue *finishedDesc;
+	uint32 slc_intr_status;
+	int n;
+
+	//Grab int status
+	slc_intr_status = READ_PERI_REG(SLC_INT_STATUS);
+	//clear all intrs
+	WRITE_PERI_REG(SLC_INT_CLR, 0xffffffff);//slc_intr_status);
+	if (slc_intr_status & SLC_RX_EOF_INT_ST) {
+		//Seems DMA pushed the current block to the i2s subsystem. Push it on the queue because it can be re-filled now.
+		finishedDesc=(struct sdio_queue*)READ_PERI_REG(SLC_RX_EOF_DES_ADDR);
+		xQueueSendFromISR(dmaQueue, (void*)(&finishedDesc->buf_ptr), &HPTaskAwoken);
+		//Hmm. The DMA should continue automatically, but does not. ToDo: check why :X
+		SET_PERI_REG_MASK(SLC_TX_LINK, SLC_TXLINK_START);
+		SET_PERI_REG_MASK(SLC_RX_LINK, SLC_RXLINK_START);
+	}
+	portEND_SWITCHING_ISR(HPTaskAwoken);
+}
 
 
 void ICACHE_FLASH_ATTR i2sInit() {
@@ -95,8 +151,10 @@ void ICACHE_FLASH_ATTR i2sInit() {
 	SET_PERI_REG_MASK(SLC_RX_DSCR_CONF,SLC_INFOR_NO_REPLACE|SLC_TOKEN_NO_REPLACE);
 	CLEAR_PERI_REG_MASK(SLC_RX_DSCR_CONF, SLC_RX_FILL_EN|SLC_RX_EOF_MODE | SLC_RX_FILL_MODE);
 
-	//Initialize 2 DMA buffer things
-	for (x=0; x<2; x++) {
+
+	//Initialize DMA buffer descriptors in such a way that they will form a circular
+	//buffer.
+	for (x=0; x<DMABUFCNT; x++) {
 		i2sBufDesc[x].owner=1;
 		i2sBufDesc[x].eof=1;
 		i2sBufDesc[x].sub_sof=0;
@@ -104,20 +162,34 @@ void ICACHE_FLASH_ATTR i2sInit() {
 		i2sBufDesc[x].blocksize=DMABUFLEN*4;
 		i2sBufDesc[x].buf_ptr=(uint32_t)&i2sBuf[x][0];
 		i2sBufDesc[x].unused=0;
-		i2sBufDesc[x].next_link_ptr=0;
+		i2sBufDesc[x].next_link_ptr=(int)((x<(DMABUFCNT-1))?(&i2sBufDesc[x+1]):(&i2sBufDesc[x]));
+		printf("Desc %x\n", &i2sBufDesc[x].buf_ptr);
 	}
-	i2sBufDesc[0].next_link_ptr=(int)&i2sBufDesc[1];
-	i2sBufDesc[1].next_link_ptr=(int)&i2sBufDesc[0];
 	
 	//Feed dma the 1st buffer desc addr
 	CLEAR_PERI_REG_MASK(SLC_TX_LINK,SLC_TXLINK_DESCADDR_MASK);
-	SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[0]) & SLC_TXLINK_DESCADDR_MASK);
+	SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[1]) & SLC_TXLINK_DESCADDR_MASK); //any random desc is OK, we don't use TX but it needs something valid
 	CLEAR_PERI_REG_MASK(SLC_RX_LINK,SLC_RXLINK_DESCADDR_MASK);
-	SET_PERI_REG_MASK(SLC_RX_LINK, ((uint32)&i2sBufDesc[1]) & SLC_RXLINK_DESCADDR_MASK);
+	SET_PERI_REG_MASK(SLC_RX_LINK, ((uint32)&i2sBufDesc[0]) & SLC_RXLINK_DESCADDR_MASK);
+
+	_xt_isr_attach(ETS_SLC_INUM, slc_isr);
+	//enable sdio operation intr
+	WRITE_PERI_REG(SLC_INT_ENA,  SLC_RX_EOF_INT_ENA);
+	//clear any interrupt flags that are set
+	WRITE_PERI_REG(SLC_INT_CLR, 0xffffffff);
+	///enable sdio intr in cpu
+	_xt_isr_unmask(1<<ETS_SLC_INUM);
+
+	//We use a queue to keep track of the DMA buffers that are empty. The ISR will push buffers to the back of the queue,
+	//the mp3 decode will pull them from the front and fill them. For ease, the queue will contain *pointers* to the DMA
+	//buffers, not the data itself.
+	dmaQueue=xQueueCreate(DMABUFCNT, sizeof(int*));
 
 	//Start transmission
 	SET_PERI_REG_MASK(SLC_TX_LINK, SLC_TXLINK_START);
 	SET_PERI_REG_MASK(SLC_RX_LINK, SLC_RXLINK_START);
+
+//----
 
 	//Init pins to i2s functions
 	PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_I2SO_DATA);
@@ -160,7 +232,6 @@ void ICACHE_FLASH_ATTR i2sInit() {
 						((7&I2S_CLKM_DIV_NUM)<<I2S_CLKM_DIV_NUM_S));
 
 
-
 	//No idea if ints are needed...
 	//clear int
 	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
@@ -199,8 +270,9 @@ void i2sSetRate(int rate) {
 
 struct madPrivateData madParms;
 
-int backBuffNo=0;
-int buffPos=0;
+
+unsigned int *currDMABuff=NULL;
+int currDMABuffPos=0;
 
 void render_sample_block(short *short_sample_buff, int no_samples) {
 	int i, s;
@@ -208,39 +280,19 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 	unsigned int samp;
 	//short_sample_buff is signed integer
 
-	if(((READ_PERI_REG(SLC_INT_RAW) & SLC_RX_DONE_INT_RAW)) && buffPos!=DMABUFLEN) {
-		printf("O");
-		buffPos=DMABUFLEN;
+	if (currDMABuff==NULL || currDMABuffPos==DMABUFLEN) {
+		//We need a new buffer. Pop one from the queue.
+//		printf("Queue pop\n");
+		xQueueReceive(dmaQueue, &currDMABuff, portMAX_DELAY);
+//		printf("Queue pop %x\n", (int)currDMABuff);
+		currDMABuffPos=0;
 	}
 
-	while (buffPos==DMABUFLEN) {
-//		printf("int %x\n", (READ_PERI_REG(SLC_INT_RAW)));
-		if((READ_PERI_REG(SLC_INT_RAW) & SLC_RX_DONE_INT_RAW)) {
-//			printf("%d %d\n", backBuffNo, buffPos);
-			//Send current back buffer (will be front buffer)to the DMA
-			CLEAR_PERI_REG_MASK(SLC_TX_LINK,SLC_TXLINK_DESCADDR_MASK);
-			SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[backBuffNo]) & SLC_TXLINK_DESCADDR_MASK);
-			CLEAR_PERI_REG_MASK(SLC_RX_LINK,SLC_RXLINK_DESCADDR_MASK);
-			SET_PERI_REG_MASK(SLC_RX_LINK, ((uint32)&i2sBufDesc[backBuffNo?0:1]) & SLC_RXLINK_DESCADDR_MASK);
-			//Start transmission again
-			SET_PERI_REG_MASK(SLC_TX_LINK, SLC_TXLINK_START);
-			SET_PERI_REG_MASK(SLC_RX_LINK, SLC_RXLINK_START);
-			//exchange front and back buffer
-			backBuffNo=(backBuffNo==1)?0:1; 
-			buffPos=0;
-			//Clear int
-			SET_PERI_REG_MASK(SLC_INT_CLR,   SLC_RX_DONE_INT_CLR);
-			CLEAR_PERI_REG_MASK(SLC_INT_CLR, SLC_RX_DONE_INT_CLR);
-		}
-	}
-
-
-	
 	for (i=0; i<no_samples; i++) {
 		samp=(short_sample_buff[i]);
 		samp=(samp)&0xffff;
 		samp=(samp<<16)|samp;
-		i2sBuf[backBuffNo][buffPos++]=short_sample_buff[i];
+		currDMABuff[currDMABuffPos++]=short_sample_buff[i];
 	}
 }
 
