@@ -46,7 +46,7 @@ struct madPrivateData {
 
 #define SPIRAMSIZE (128*1024)
 #define SPIREADSIZE 64 		//in bytes, needs to be multiple of 4
-#define SPILOWMARK (96*1024) //don't start reading until spi ram is emptied till this mark
+#define SPILOWMARK (127*1024) //don't start reading until spi ram is emptied till this mark
 
 
 #define i2c_bbpll                                 0x67
@@ -63,13 +63,17 @@ struct madPrivateData {
       i2c_readReg_Mask(block, block##_hostid,  reg_add,  reg_add##_msb,  reg_add##_lsb)
 
 
-#define DMABUFLEN (32*13)
-unsigned int i2sBuf[2][DMABUFLEN];
+#define DMABUFLEN (32*18)
+//unsigned int i2sBuf[2][DMABUFLEN];
+unsigned int *i2sBuf[2];
 struct sdio_queue i2sBufDesc[2];
 
 
 void ICACHE_FLASH_ATTR i2sInit() {
 	int x;
+	
+	i2sBuf[0]=malloc(DMABUFLEN*4);
+	i2sBuf[1]=malloc(DMABUFLEN*4);
 
 	//Clear sample byffer. We don't want noise.
 	for (x=0; x<DMABUFLEN; x++) {
@@ -98,7 +102,7 @@ void ICACHE_FLASH_ATTR i2sInit() {
 		i2sBufDesc[x].sub_sof=0;
 		i2sBufDesc[x].datalen=DMABUFLEN*4;
 		i2sBufDesc[x].blocksize=DMABUFLEN*4;
-		i2sBufDesc[x].buf_ptr=(uint32_t)&i2sBuf[x];
+		i2sBufDesc[x].buf_ptr=(uint32_t)&i2sBuf[x][0];
 		i2sBufDesc[x].unused=0;
 		i2sBufDesc[x].next_link_ptr=0;
 	}
