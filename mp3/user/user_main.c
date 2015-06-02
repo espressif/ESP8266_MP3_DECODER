@@ -78,46 +78,30 @@ struct madPrivateData madParms;
 #define PRIO_READER 2
 #define PRIO_MAD 3
 
+//The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
+#define READBUFSZ (2106+64)
+static char readBuf[READBUFSZ]; 
+
+//This routine is called by the NXP modifications of libmad. It passes us (for the mono synth)
+//32 16-bit samples.
 void render_sample_block(short *short_sample_buff, int no_samples) {
 	int i;
 	unsigned int samp;
 
 	for (i=0; i<no_samples; i++) {
+		//Duplicate 16-bit sample to both the L and R channel
 		samp=(short_sample_buff[i]);
 		samp=(samp)&0xffff;
 		samp=(samp<<16)|samp;
+		//Send the sample.
 		i2sPushSample(samp);
 	}
 }
 
+//Called by the NXP modificationss of libmad. Sets the needed output sample rate.
 void set_dac_sample_rate(int rate) {
 //	printf("sr %d\n", rate);
 }
-
-
-//The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
-#define READBUFSZ (2106+64)
-static char readBuf[READBUFSZ]; 
-
-void memcpyAligned(char *dst, char *src, int len) {
-	int x;
-	int w, b;
-	if (((int)dst&3)==0 && ((int)src&3)==0) {
-		memcpy(dst, src, len);
-		return;
-	}
-
-	for (x=0; x<len; x++) {
-		b=((int)src&3);
-		w=*((int *)(src-b));
-		if (b==0) *dst=(w>>0);
-		if (b==1) *dst=(w>>8);
-		if (b==2) *dst=(w>>16);
-		if (b==3) *dst=(w>>24);
-		dst++; src++;
-	}
-}
-
 
 static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *stream) {
 	int n, i;
@@ -128,14 +112,17 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *str
 	rem=stream->bufend-stream->next_frame;
 	memmove(readBuf, stream->next_frame, rem);
 
-	//Wait until there is enough data in the buffer. This only happens when the data feed rate is too low, and shouldn't normally be needed!
+	//Wait until there is enough data in the buffer. This only happens when the data feed 
+	//rate is too low, and shouldn't normally be needed!
 	do {
 		xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
 		fifoLen=p->fifoLen;
 		xSemaphoreGive(p->muxBufferBusy);
 		if (fifoLen<(sizeof(readBuf)-rem)) {
 			printf("Buf uflow %d < %d \n", (p->fifoLen), (sizeof(readBuf)-rem));
-			vTaskDelay(100/portTICK_RATE_MS);
+			//We both silence the output as well as wait a while by pushing silent samples into the i2s system.
+			//THis waits for about 100mS
+			for (n=0; n<441; n++) i2sPushSample(0);
 		}
 	} while (fifoLen<(sizeof(readBuf)-rem));
 
@@ -148,15 +135,15 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *str
 		p->fifoLen-=SPIREADSIZE;
 		xSemaphoreGive(p->muxBufferBusy);
 
-		//Move into place
-		memcpyAligned(&readBuf[rem], rbuf, SPIREADSIZE);
+		//Move data into place
+		memcpy(&readBuf[rem], rbuf, SPIREADSIZE);
 		rem+=sizeof(rbuf);
 	}
 
 	//Let reader thread read more data if needed
 	if (fifoLen<SPILOWMARK) xSemaphoreGive(p->semNeedRead);
 
-	//Okay, decode the buffer.
+	//Okay, let MAD decode the buffer.
 	mad_stream_buffer(stream, readBuf, rem);
 	return MAD_FLOW_CONTINUE;
 }
@@ -171,10 +158,6 @@ static enum mad_flow ICACHE_FLASH_ATTR error(void *data, struct mad_stream *stre
 	printf("dec err 0x%04x (%s)\n", stream->error, mad_stream_errorstr(stream));
 	return MAD_FLOW_CONTINUE;
 }
-
-
-
-
 
 
 void ICACHE_FLASH_ATTR tskmad(void *pvParameters){
