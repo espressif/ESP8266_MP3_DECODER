@@ -57,7 +57,6 @@ const unsigned int ICACHE_RODATA_ATTR fakePwm[]={ 0x00000010, 0x00000410, 0x0040
 #endif
 
 
-
 //The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
 #define READBUFSZ (2106+64)
 static char readBuf[READBUFSZ]; 

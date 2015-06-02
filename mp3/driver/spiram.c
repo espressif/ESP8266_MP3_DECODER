@@ -59,9 +59,9 @@ void ICACHE_FLASH_ATTR spiRamInit() {
 
 //Read bytes from a memory location. The max amount of bytes that can be read is 64.
 void spiRamRead(int addr, char *buff, int len) {
-	int i;
 	int *p=(int*)buff;
 	int d;
+	int i=0;
 	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
 	SET_PERI_REG_MASK(SPI_USER(HSPI), SPI_CS_SETUP|SPI_CS_HOLD|SPI_USR_COMMAND|SPI_USR_ADDR|SPI_USR_MISO);
 	CLEAR_PERI_REG_MASK(SPI_USER(HSPI), SPI_FLASH_MODE|SPI_USR_MOSI);
@@ -72,28 +72,21 @@ void spiRamRead(int addr, char *buff, int len) {
 	WRITE_PERI_REG(SPI_USER2(HSPI), (((7&SPI_USR_COMMAND_BITLEN)<<SPI_USR_COMMAND_BITLEN_S) | 0x03));
 	SET_PERI_REG_MASK(SPI_CMD(HSPI), SPI_USR);
 	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
-//	if ((((int)buff)&3)==0) {
-	if (0) {
-		//Aligned dest addr. Copy 32 bits at a time
-		for (i=0; i<(len+3)/4; i++) {
-			p[i]=READ_PERI_REG(SPI_W(HSPI, i));
-		}
-	} else {
-		//Unaligned dest address. Copy 8bit at a time
-		for (i=0; i<(len+3)/4; i++) {
-			d=READ_PERI_REG(SPI_W(HSPI, i));
-			buff[i*4+0]=(d>>0)&0xff;
-			buff[i*4+1]=(d>>8)&0xff;
-			buff[i*4+2]=(d>>16)&0xff;
-			buff[i*4+3]=(d>>24)&0xff;
-		}
+	//Unaligned dest address. Copy 8bit at a time
+	while (len>0) {
+		d=READ_PERI_REG(SPI_W(HSPI, i));
+		buff[i*4+0]=(d>>0)&0xff;
+		if (len>=1) buff[i*4+1]=(d>>8)&0xff;
+		if (len>=2) buff[i*4+2]=(d>>16)&0xff;
+		if (len>=3) buff[i*4+3]=(d>>24)&0xff;
+		len-=4;
+		i++;
 	}
 }
 
 //Write bytes to a memory location. The max amount of bytes that can be written is 64.
 void spiRamWrite(int addr, char *buff, int len) {
 	int i;
-	int *p=(int*)buff;
 	int d;
 	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
 	SET_PERI_REG_MASK(SPI_USER(HSPI), SPI_CS_SETUP|SPI_CS_HOLD|SPI_USR_COMMAND|SPI_USR_ADDR|SPI_USR_MOSI);
@@ -103,21 +96,13 @@ void spiRamWrite(int addr, char *buff, int len) {
 			((23&SPI_USR_ADDR_BITLEN)<<SPI_USR_ADDR_BITLEN_S)); //address is 24 bits A0-A23
 	WRITE_PERI_REG(SPI_ADDR(HSPI), addr<<8); //write address
 	WRITE_PERI_REG(SPI_USER2(HSPI), (((7&SPI_USR_COMMAND_BITLEN)<<SPI_USR_COMMAND_BITLEN_S) | 0x02));
-//	if ((((int)buff)&3)==0) {
-	if (0) {
-		//Aligned src address. Copy 32bit at a time
-		for (i=0; i<(len+3)/4; i++) {
-			WRITE_PERI_REG(SPI_W(HSPI, (i)), p[i]);
-		}
-	} else {
-		//Unaligned src. Copy byte-wise.
-		for (i=0; i<(len+3)/4; i++) {
-			d=buff[i*4+0]<<0;
-			d|=buff[i*4+1]<<8;
-			d|=buff[i*4+2]<<16;
-			d|=buff[i*4+3]<<24;
-			WRITE_PERI_REG(SPI_W(HSPI, (i)), d);
-		}
+	//Assume unaligned src: Copy byte-wise.
+	for (i=0; i<(len+3)/4; i++) {
+		d=buff[i*4+0]<<0;
+		d|=buff[i*4+1]<<8;
+		d|=buff[i*4+2]<<16;
+		d|=buff[i*4+3]<<24;
+		WRITE_PERI_REG(SPI_W(HSPI, (i)), d);
 	}
 	SET_PERI_REG_MASK(SPI_CMD(HSPI), SPI_USR);
 }
