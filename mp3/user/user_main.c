@@ -56,6 +56,13 @@
 
 
 
+#define AP_NAME "testjmd"
+#define AP_PASS "pannenkoek"
+/*
+#define AP_NAME "wifi-2"
+#define AP_PASS "thesumof6+6=12"
+*/
+
 //TODO: REFACTOR!
 struct madPrivateData {
 	int fd;
@@ -148,57 +155,52 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *str
 	return MAD_FLOW_CONTINUE;
 }
 
-//Unused, the NXP implementation uses render_sample_block
-static enum mad_flow ICACHE_FLASH_ATTR output(void *data, struct mad_header const *header, struct mad_pcm *pcm) {
-	 return MAD_FLOW_CONTINUE;
-}
-
+//Routine to print out an error
 static enum mad_flow ICACHE_FLASH_ATTR error(void *data, struct mad_stream *stream, struct mad_frame *frame) {
-//	struct madPrivateData *p = (struct madPrivateData*)data;
 	printf("dec err 0x%04x (%s)\n", stream->error, mad_stream_errorstr(stream));
 	return MAD_FLOW_CONTINUE;
 }
 
 
+//This is the main mp3 decoding task. It will grab data from the input buffer FIFO in the SPI ram and
+//output it to the I2S port.
 void ICACHE_FLASH_ATTR tskmad(void *pvParameters){
 	int r;
 	struct madPrivateData *p=&madParms; //pvParameters;
 	struct mad_stream *stream;
 	struct mad_frame *frame;
 	struct mad_synth *synth;
-	int t=0;
 
+	//Allocate structs needed for mp3 decoding
 	stream=malloc(sizeof(struct mad_stream));
 	frame=malloc(sizeof(struct mad_frame));
 	synth=malloc(sizeof(struct mad_synth));
 
 	printf("MAD: Decoder start.\n");
+	//Initialize mp3 parts
 	mad_stream_init(stream);
 	mad_frame_init(frame);
 	mad_synth_init(synth);
 	while(1) {
 		input(p, stream); //calls mad_stream_buffer internally
-//		printf("Read input stream\n");
 		while(1) {
 			r=mad_frame_decode(frame, stream);
 			if (r==-1) {
-	 			if (!MAD_RECOVERABLE(stream->error))
+	 			if (!MAD_RECOVERABLE(stream->error)) {
+					//We're most likely out of buffer and need to call input() again
 					break;
+				}
 				error(NULL, stream, frame);
 				continue;
 			}
-//			printf("Decoded\n");
 			mad_synth_frame(synth, frame);
-//			printf("Synth\n");
 		}
-//		if (malloc(16)!=NULL) t+=16;
-//		printf("Free: %d\n", t);
 	}
-//	printf("MAD: Decode done.\n");
 }
 
 
 
+//Open a connection to a TCP port
 int ICACHE_FLASH_ATTR openConn() {
 	while(1) {
 		int n, i;
@@ -224,7 +226,7 @@ int ICACHE_FLASH_ATTR openConn() {
 }
 
 
-
+//Reader task. This will try to read data from a TCP socket into the SPI fifo buffer.
 void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 	struct madPrivateData *p=&madParms;//pvParameters;
 	fd_set fdsRead;
@@ -261,9 +263,8 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 			}
 		} while (inBuf<(SPIRAMSIZE-64));
 		if (!madRunning) {
-			//tskMad seems to need at least 2060 bytes of RAM.
-			//Max prio is 2; nore interferes with freertos.
-			if (xTaskCreate(tskmad, "tskmad", 2060, NULL, PRIO_MAD, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task!\n");
+			//Buffer is filled. Start up the MAD task. Yes, the 2060 bytes of stack is a fair amount but MAD seems to need it.
+			if (xTaskCreate(tskmad, "tskmad", 2060, NULL, PRIO_MAD, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task! Out of memory?\n");
 			madRunning=1;
 		}
 		printf("Read done.\n");
@@ -272,45 +273,56 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 	}
 }
 
+//Simple task to connect to an access point, initialize i2s and fire up the reader task.
 void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
+	//Wait a few secs for the stack to settle down
 	vTaskDelay(3000/portTICK_RATE_MS);
-//	printf("Connecting to AP...\n");
+	
+	//Go to station mode
 	wifi_station_disconnect();
-//	wifi_set_opmode(STATIONAP_MODE);
 	if (wifi_get_opmode() != STATION_MODE) { 
 		wifi_set_opmode(STATION_MODE);
 	}
-//	wifi_set_opmode(SOFTAP_MODE);
 
+	//Connect to the defined access point.
 	struct station_config *config=malloc(sizeof(struct station_config));
 	memset(config, 0x00, sizeof(struct station_config));
-	sprintf(config->ssid, "testjmd");
-	sprintf(config->password, "pannenkoek");
-//	sprintf(config->ssid, "wifi-2");
-//	sprintf(config->password, "thesumof6+6=12");
-//	sprintf(config->ssid, "Sprite");
-//	sprintf(config->password, "pannenkoek");
+	sprintf(config->ssid, AP_NAME);
+	sprintf(config->password, AP_PASS);
 	wifi_station_set_config(config);
 	wifi_station_connect();
 	free(config);
-//	printf("Connection thread done.\n");
 
+	//Initialize I2S and fire up the reader task. The reader task will fire up the MP3 decoder as soon
+	//as it has read enough MP3 data.
 	i2sInit();
 	if (xTaskCreate(tskreader, "tskreader", 230, NULL, PRIO_READER, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
+	//We're done. Delete this task.
 	vTaskDelete(NULL);
 }
 
+//We need this to tell the OS we're running at a higher clock frequency.
 extern void os_update_cpu_frequency(int mhz);
 
 void ICACHE_FLASH_ATTR
 user_init(void)
 {
+	//Tell hardware to run at 160MHz instead of 80MHz
+	//Disabled because we don't need 160MHz to do something puny like decoding an MP3 file.
+#if 0
 	SET_PERI_REG_MASK(0x3ff00014, BIT(0));
 	os_update_cpu_frequency(160);
+#endif
 	
+	//Set the UART to 115200 baud
 	UART_SetBaudrate(0, 115200);
+	//Initialize the SPI RAM chip communications and see if it actually retains some bytes. If it
+	//doesn't, warn user.
 	spiRamInit();
-	spiRamTest();
+	if (!spiRamTest()) {
+		printf("SPI RAM chip does not seem to work. Is it connected correctly?\n");
+		while(1);
+	}
 
 	madParms.fifoLen=0;
 	madParms.fifoRaddr=0;

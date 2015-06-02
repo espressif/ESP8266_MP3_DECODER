@@ -115,12 +115,12 @@ void ICACHE_FLASH_ATTR spiRamTest() {
 		bb=x;
 		if (aa!=a[x]) {
 			err=1;
-			printf("aa: 0x%x != 0x%x\n", aa, a[x]);
+//			printf("aa: 0x%x != 0x%x\n", aa, a[x]);
 		}
 		if (bb!=b[x]) {
 			err=1;
-			printf("bb: 0x%x != 0x%x\n", bb, b[x]);
+//			printf("bb: 0x%x != 0x%x\n", bb, b[x]);
 		}
 	}
-	while(err); //Hang here. Not too nice...
+	return !err
 }

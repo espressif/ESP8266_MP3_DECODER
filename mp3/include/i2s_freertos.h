@@ -2,7 +2,7 @@
 #define _I2S_FREERTOS_H_
 
 //Parameters for the I2S DMA behaviour
-#define I2SDMABUFCNT (8)			//Number of buffers in the I2S circular buffer
+#define I2SDMABUFCNT (10)			//Number of buffers in the I2S circular buffer
 #define I2SDMABUFLEN (32*2)		//Length of one buffer.
 
 
