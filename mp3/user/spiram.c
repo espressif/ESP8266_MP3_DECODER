@@ -1,3 +1,18 @@
+/******************************************************************************
+ * Copyright 2013-2015 Espressif Systems
+ *
+ * FileName: user_main.c
+ *
+ * Description: Driver for a 23LC1024 or similar chip connected to the SPI port.
+ * The chip is connected to the same pins as the main flash chip except for the
+ * /CS pin: that needs to be connected to IO0. The chip is driven in 1-bit SPI
+ * mode: theoretically, we can move data faster by using double- or quad-SPI
+ * mode but that is not implemented here. The chip also is used like a generic
+ * SPI device, nothing memory-mapped like the main flash.
+ *
+ * Modification history:
+ *     2015/06/01, v1.0 File created.
+*******************************************************************************/
 #include "esp_common.h"
 
 #include "freertos/FreeRTOS.h"
@@ -8,8 +23,7 @@
 #define SPI 			0
 #define HSPI			1
 
-
-
+//Initialize the SPI port to talk to the chip.
 void ICACHE_FLASH_ATTR spiRamInit() {
 	 //hspi overlap to spi, two spi masters on cspi
 	//#define HOST_INF_SEL 0x3ff00028 
@@ -37,10 +51,11 @@ void ICACHE_FLASH_ATTR spiRamInit() {
 
 }
 
+//Macro to quickly access the W-registers of the SPI peripherial
 #define SPI_W(i, j)                   (REG_SPI_BASE(i) + 0x40 + ((j)*4))
 
 
-//n=1..64
+//Read bytes from a memory location. The max amount of bytes that can be read is 64.
 void spiRamRead(int addr, char *buff, int len) {
 	int i;
 	int *p=(int*)buff;
@@ -59,7 +74,7 @@ void spiRamRead(int addr, char *buff, int len) {
 	}
 }
 
-//n=1..64
+//Write bytes to a memory location. The max amount of bytes that can be written is 64.
 void spiRamWrite(int addr, char *buff, int len) {
 	int i;
 	int *p=(int*)buff;
@@ -78,6 +93,8 @@ void spiRamWrite(int addr, char *buff, int len) {
 }
 
 
+//Simple routine to see if the SPI actually stores bytes. This is not a full memory test, but will tell
+//you if the RAM chip is connected well.
 void ICACHE_FLASH_ATTR spiRamTest() {
 	int x;
 	int err=0;
@@ -105,5 +122,5 @@ void ICACHE_FLASH_ATTR spiRamTest() {
 			printf("bb: 0x%x != 0x%x\n", bb, b[x]);
 		}
 	}
-	while(err);
+	while(err); //Hang here. Not too nice...
 }

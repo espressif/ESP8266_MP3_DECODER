@@ -1,12 +1,12 @@
 /******************************************************************************
- * Copyright 2013-2014 Espressif Systems (Wuxi)
+ * Copyright 2013-2015 Espressif Systems
  *
  * FileName: user_main.c
  *
- * Description: entry file of user application
+ * Description: Main routines for MP3 decoder.
  *
  * Modification history:
- *     2014/12/1, v1.0 create this file.
+ *     2015/06/01, v1.0 File created.
 *******************************************************************************/
 #include "esp_common.h"
 
@@ -28,28 +28,9 @@
 #include "sdio_slv.h"
 #include "spiram.h"
 
-#define server_ip "192.168.12.1"
-//#define server_ip "192.168.40.117"
-//#define server_ip "192.168.1.4"
-//#define server_ip "192.168.4.100"
-#define server_port 1234
 
-
-struct madPrivateData {
-	int fd;
-	xSemaphoreHandle muxBufferBusy;
-	xSemaphoreHandle semNeedRead;
-	int fifoLen;
-	int fifoRaddr;
-	int fifoWaddr;
-};
-
-
-#define SPIRAMSIZE (128*1024)
-#define SPIREADSIZE 64 		//in bytes, needs to be multiple of 4
-#define SPILOWMARK (127*1024) //don't start reading until spi ram is emptied till this mark
-
-
+//We need some defines that aren't in some RTOS SDK versions. Define them here if we can't find them.
+#ifndef i2c_bbpll
 #define i2c_bbpll                                 0x67
 #define i2c_bbpll_en_audio_clock_out            4
 #define i2c_bbpll_en_audio_clock_out_msb        7
@@ -62,44 +43,48 @@ struct madPrivateData {
       i2c_writeReg_Mask(block, block##_hostid,  reg_add,  reg_add##_msb,  reg_add##_lsb,  indata)
 #define i2c_readReg_Mask_def(block, reg_add) \
       i2c_readReg_Mask(block, block##_hostid,  reg_add,  reg_add##_msb,  reg_add##_lsb)
-
-
-#define DMABUFLEN (32*4)
-#define DMABUFCNT (10)
-
-//unsigned int i2sBuf[2][DMABUFLEN];
-unsigned int *i2sBuf[DMABUFCNT];
-struct sdio_queue i2sBufDesc[DMABUFCNT];
-
-/*
-About the timings:
-configTICK_RATE_HZ is 100Hz on an 80MHz device.
-I think it's 200Hz here because we're running on a 160MHz clocked device, which should 
-give us 5MS granularity.
-
-Let's say the max output clock freq is 50KHz (48KHz plus some margin), that'd mean
-to bridge one tick we need to keep (50000*0.005=)250 samples in the DMA buffer to
-keep on truckin' if the CPU spends a tick in the task with a lower priority.
-*/
-
-
+#endif
 #ifndef ETS_SLC_INUM
-//for sdks without this info
 #define ETS_SLC_INUM       1
-//#define ETS_SLC_INTR_ATTACH(func, arg) \
-//    ets_isr_attach(ETS_SLC_INUM, (func), (void *)(arg))
-//#define ETS_SLC_INTR_ENABLE()\
-//      ETS_INTR_ENABLE(ETS_SLC_INUM)
-//#define ETS_SLC_INTR_DISABLE()\
-//      ETS_INTR_DISABLE(ETS_SLC_INUM) 
-
-//#define ETS_INTR_ENABLE(inum) \
-//    ets_isr_unmask((1<<inum))
-
-
 #endif
 
 
+//The server to connect to
+#define server_ip "192.168.12.1"
+//#define server_ip "192.168.40.117"
+//#define server_ip "192.168.1.4"
+//#define server_ip "192.168.4.100"
+#define server_port 1234
+
+
+
+//TODO: REFACTOR!
+struct madPrivateData {
+	int fd;
+	xSemaphoreHandle muxBufferBusy;
+	xSemaphoreHandle semNeedRead;
+	int fifoLen;
+	int fifoRaddr;
+	int fifoWaddr;
+};
+
+
+//Parameters for the input buffer behaviour
+#define SPIRAMSIZE (128*1024)	//Size of the SPI RAM used as an input buffer
+#define SPIREADSIZE 64 			//Read burst size, in bytes, needs to be multiple of 4 and <=64
+#define SPILOWMARK (92*1024)	//Don't start reading from network until spi ram is emptied below this mark
+
+
+//Parameters for the I2S DMA behaviour
+#define DMABUFCNT (8)			//Number of buffers in the I2S circular buffer
+#define DMABUFLEN (32*2)		//Length of one buffer.
+
+//Priorities of the reader and the decoder thread. Higher = higher prio.
+#define PRIO_READER 2
+#define PRIO_MAD 3
+
+unsigned int *i2sBuf[DMABUFCNT];
+struct sdio_queue i2sBufDesc[DMABUFCNT];
 xQueueHandle dmaQueue;
 
 
@@ -108,33 +93,44 @@ LOCAL void slc_isr(void) {
 	struct sdio_queue *finishedDesc;
 	uint32 slc_intr_status;
 	int n;
+	static int t=0;
 
 	//Grab int status
 	slc_intr_status = READ_PERI_REG(SLC_INT_STATUS);
 	//clear all intrs
 	WRITE_PERI_REG(SLC_INT_CLR, 0xffffffff);//slc_intr_status);
 	if (slc_intr_status & SLC_RX_EOF_INT_ST) {
-		//Seems DMA pushed the current block to the i2s subsystem. Push it on the queue because it can be re-filled now.
+		//The DMA subsystem is done with this block: Push it on the queue so it can be re-used.
 		finishedDesc=(struct sdio_queue*)READ_PERI_REG(SLC_RX_EOF_DES_ADDR);
+		if (t<10) {
+			printf("%d: %x\n", t, (int)finishedDesc);
+			t++;
+		}
+		if (xQueueIsQueueFullFromISR(dmaQueue)) {
+			//All buffers are empty. This means we have an underflow on our hands.
+			printf("U");
+			//Pop the top off the queue; it's invalid now anyway.
+			xQueueReceiveFromISR(dmaQueue, &n, &HPTaskAwoken);
+		}
+		//Dump the buffer on the queue so we can fill it.
 		xQueueSendFromISR(dmaQueue, (void*)(&finishedDesc->buf_ptr), &HPTaskAwoken);
-		//Hmm. The DMA should continue automatically, but does not. ToDo: check why :X
-		SET_PERI_REG_MASK(SLC_TX_LINK, SLC_TXLINK_START);
-		SET_PERI_REG_MASK(SLC_RX_LINK, SLC_RXLINK_START);
 	}
+	//We're done.
 	portEND_SWITCHING_ISR(HPTaskAwoken);
 }
 
 
+//Initialize I2S subsystem for DMA circular buffer use
 void ICACHE_FLASH_ATTR i2sInit() {
-	int x;
+	int x, y;
 	
-	i2sBuf[0]=malloc(DMABUFLEN*4);
-	i2sBuf[1]=malloc(DMABUFLEN*4);
-
-	//Clear sample byffer. We don't want noise.
-	for (x=0; x<DMABUFLEN; x++) {
-		i2sBuf[0][x]=0;
-		i2sBuf[1][x]=0;
+	for (y=0; y<DMABUFCNT; y++) {
+		//Allocate memory for this DMA sample buffer.
+		i2sBuf[y]=malloc(DMABUFLEN*4);
+		//Clear sample buffer. We don't want noise.
+		for (x=0; x<DMABUFLEN; x++) {
+			i2sBuf[y][x]=0;
+		}
 	}
 
 	//Reset DMA
@@ -162,8 +158,8 @@ void ICACHE_FLASH_ATTR i2sInit() {
 		i2sBufDesc[x].blocksize=DMABUFLEN*4;
 		i2sBufDesc[x].buf_ptr=(uint32_t)&i2sBuf[x][0];
 		i2sBufDesc[x].unused=0;
-		i2sBufDesc[x].next_link_ptr=(int)((x<(DMABUFCNT-1))?(&i2sBufDesc[x+1]):(&i2sBufDesc[x]));
-		printf("Desc %x\n", &i2sBufDesc[x].buf_ptr);
+		i2sBufDesc[x].next_link_ptr=(int)((x<(DMABUFCNT-1))?(&i2sBufDesc[x+1]):(&i2sBufDesc[0]));
+		printf("Desc %x\n", &i2sBufDesc[x]);
 	}
 	
 	//Feed dma the 1st buffer desc addr
@@ -182,8 +178,10 @@ void ICACHE_FLASH_ATTR i2sInit() {
 
 	//We use a queue to keep track of the DMA buffers that are empty. The ISR will push buffers to the back of the queue,
 	//the mp3 decode will pull them from the front and fill them. For ease, the queue will contain *pointers* to the DMA
-	//buffers, not the data itself.
-	dmaQueue=xQueueCreate(DMABUFCNT, sizeof(int*));
+	//buffers, not the data itself. The queue depth is one smaller than the amount of buffers we have, because there's
+	//always a buffer that is being used by the DMA subsystem *right now* and we don't want to be able to write to that
+	//simultaneously.
+	dmaQueue=xQueueCreate(DMABUFCNT-1, sizeof(int*));
 
 	//Start transmission
 	SET_PERI_REG_MASK(SLC_TX_LINK, SLC_TXLINK_START);
@@ -282,9 +280,7 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 
 	if (currDMABuff==NULL || currDMABuffPos==DMABUFLEN) {
 		//We need a new buffer. Pop one from the queue.
-//		printf("Queue pop\n");
 		xQueueReceive(dmaQueue, &currDMABuff, portMAX_DELAY);
-//		printf("Queue pop %x\n", (int)currDMABuff);
 		currDMABuffPos=0;
 	}
 
@@ -485,7 +481,7 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 		if (!madRunning) {
 			//tskMad seems to need at least 2060 bytes of RAM.
 			//Max prio is 2; nore interferes with freertos.
-			if (xTaskCreate(tskmad, "tskmad", 2060, NULL, 1, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task!\n");
+			if (xTaskCreate(tskmad, "tskmad", 2060, NULL, PRIO_MAD, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task!\n");
 			madRunning=1;
 		}
 		printf("Read done.\n");
@@ -518,7 +514,7 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 //	printf("Connection thread done.\n");
 
 	i2sInit();
-	if (xTaskCreate(tskreader, "tskreader", 230, NULL, 2, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
+	if (xTaskCreate(tskreader, "tskreader", 230, NULL, PRIO_READER, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
 	vTaskDelete(NULL);
 }
 
