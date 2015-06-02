@@ -23,9 +23,7 @@
 #include "../mad/stream.h"
 #include "../mad/frame.h"
 #include "../mad/synth.h"
-#include "i2s_reg.h"
-#include "slc_register.h"
-#include "sdio_slv.h"
+#include "i2s_freertos.h"
 #include "spiram.h"
 
 
@@ -69,232 +67,33 @@ struct madPrivateData {
 };
 
 
+struct madPrivateData madParms;
+
 //Parameters for the input buffer behaviour
 #define SPIRAMSIZE (128*1024)	//Size of the SPI RAM used as an input buffer
 #define SPIREADSIZE 64 			//Read burst size, in bytes, needs to be multiple of 4 and <=64
 #define SPILOWMARK (92*1024)	//Don't start reading from network until spi ram is emptied below this mark
 
-
-//Parameters for the I2S DMA behaviour
-#define DMABUFCNT (8)			//Number of buffers in the I2S circular buffer
-#define DMABUFLEN (32*2)		//Length of one buffer.
-
 //Priorities of the reader and the decoder thread. Higher = higher prio.
 #define PRIO_READER 2
 #define PRIO_MAD 3
 
-unsigned int *i2sBuf[DMABUFCNT];
-struct sdio_queue i2sBufDesc[DMABUFCNT];
-xQueueHandle dmaQueue;
-
-
-LOCAL void slc_isr(void) {
-	portBASE_TYPE HPTaskAwoken=0;
-	struct sdio_queue *finishedDesc;
-	uint32 slc_intr_status;
-	int n;
-	static int t=0;
-
-	//Grab int status
-	slc_intr_status = READ_PERI_REG(SLC_INT_STATUS);
-	//clear all intrs
-	WRITE_PERI_REG(SLC_INT_CLR, 0xffffffff);//slc_intr_status);
-	if (slc_intr_status & SLC_RX_EOF_INT_ST) {
-		//The DMA subsystem is done with this block: Push it on the queue so it can be re-used.
-		finishedDesc=(struct sdio_queue*)READ_PERI_REG(SLC_RX_EOF_DES_ADDR);
-		if (t<10) {
-			printf("%d: %x\n", t, (int)finishedDesc);
-			t++;
-		}
-		if (xQueueIsQueueFullFromISR(dmaQueue)) {
-			//All buffers are empty. This means we have an underflow on our hands.
-			printf("U");
-			//Pop the top off the queue; it's invalid now anyway.
-			xQueueReceiveFromISR(dmaQueue, &n, &HPTaskAwoken);
-		}
-		//Dump the buffer on the queue so we can fill it.
-		xQueueSendFromISR(dmaQueue, (void*)(&finishedDesc->buf_ptr), &HPTaskAwoken);
-	}
-	//We're done.
-	portEND_SWITCHING_ISR(HPTaskAwoken);
-}
-
-
-//Initialize I2S subsystem for DMA circular buffer use
-void ICACHE_FLASH_ATTR i2sInit() {
-	int x, y;
-	
-	for (y=0; y<DMABUFCNT; y++) {
-		//Allocate memory for this DMA sample buffer.
-		i2sBuf[y]=malloc(DMABUFLEN*4);
-		//Clear sample buffer. We don't want noise.
-		for (x=0; x<DMABUFLEN; x++) {
-			i2sBuf[y][x]=0;
-		}
-	}
-
-	//Reset DMA
-	SET_PERI_REG_MASK(SLC_CONF0, SLC_RXLINK_RST|SLC_TXLINK_RST);
-	CLEAR_PERI_REG_MASK(SLC_CONF0, SLC_RXLINK_RST|SLC_TXLINK_RST);
-
-	//Clear DMA int flags
-	SET_PERI_REG_MASK(SLC_INT_CLR,  0xffffffff);
-	CLEAR_PERI_REG_MASK(SLC_INT_CLR,  0xffffffff);
-
-	//Enable and configure DMA
-	CLEAR_PERI_REG_MASK(SLC_CONF0, (SLC_MODE<<SLC_MODE_S));
-	SET_PERI_REG_MASK(SLC_CONF0,(1<<SLC_MODE_S));
-	SET_PERI_REG_MASK(SLC_RX_DSCR_CONF,SLC_INFOR_NO_REPLACE|SLC_TOKEN_NO_REPLACE);
-	CLEAR_PERI_REG_MASK(SLC_RX_DSCR_CONF, SLC_RX_FILL_EN|SLC_RX_EOF_MODE | SLC_RX_FILL_MODE);
-
-
-	//Initialize DMA buffer descriptors in such a way that they will form a circular
-	//buffer.
-	for (x=0; x<DMABUFCNT; x++) {
-		i2sBufDesc[x].owner=1;
-		i2sBufDesc[x].eof=1;
-		i2sBufDesc[x].sub_sof=0;
-		i2sBufDesc[x].datalen=DMABUFLEN*4;
-		i2sBufDesc[x].blocksize=DMABUFLEN*4;
-		i2sBufDesc[x].buf_ptr=(uint32_t)&i2sBuf[x][0];
-		i2sBufDesc[x].unused=0;
-		i2sBufDesc[x].next_link_ptr=(int)((x<(DMABUFCNT-1))?(&i2sBufDesc[x+1]):(&i2sBufDesc[0]));
-		printf("Desc %x\n", &i2sBufDesc[x]);
-	}
-	
-	//Feed dma the 1st buffer desc addr
-	CLEAR_PERI_REG_MASK(SLC_TX_LINK,SLC_TXLINK_DESCADDR_MASK);
-	SET_PERI_REG_MASK(SLC_TX_LINK, ((uint32)&i2sBufDesc[1]) & SLC_TXLINK_DESCADDR_MASK); //any random desc is OK, we don't use TX but it needs something valid
-	CLEAR_PERI_REG_MASK(SLC_RX_LINK,SLC_RXLINK_DESCADDR_MASK);
-	SET_PERI_REG_MASK(SLC_RX_LINK, ((uint32)&i2sBufDesc[0]) & SLC_RXLINK_DESCADDR_MASK);
-
-	_xt_isr_attach(ETS_SLC_INUM, slc_isr);
-	//enable sdio operation intr
-	WRITE_PERI_REG(SLC_INT_ENA,  SLC_RX_EOF_INT_ENA);
-	//clear any interrupt flags that are set
-	WRITE_PERI_REG(SLC_INT_CLR, 0xffffffff);
-	///enable sdio intr in cpu
-	_xt_isr_unmask(1<<ETS_SLC_INUM);
-
-	//We use a queue to keep track of the DMA buffers that are empty. The ISR will push buffers to the back of the queue,
-	//the mp3 decode will pull them from the front and fill them. For ease, the queue will contain *pointers* to the DMA
-	//buffers, not the data itself. The queue depth is one smaller than the amount of buffers we have, because there's
-	//always a buffer that is being used by the DMA subsystem *right now* and we don't want to be able to write to that
-	//simultaneously.
-	dmaQueue=xQueueCreate(DMABUFCNT-1, sizeof(int*));
-
-	//Start transmission
-	SET_PERI_REG_MASK(SLC_TX_LINK, SLC_TXLINK_START);
-	SET_PERI_REG_MASK(SLC_RX_LINK, SLC_RXLINK_START);
-
-//----
-
-	//Init pins to i2s functions
-	PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_I2SO_DATA);
-	PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_I2SO_WS);
-	PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDO_U, FUNC_I2SO_BCK);
-
-	//Enable clock to i2s subsystem?
-	i2c_writeReg_Mask_def(i2c_bbpll, i2c_bbpll_en_audio_clock_out, 1);
-
-	//Reset I2S subsystem
-	CLEAR_PERI_REG_MASK(I2SCONF,I2S_I2S_RESET_MASK);
-	SET_PERI_REG_MASK(I2SCONF,I2S_I2S_RESET_MASK);
-	CLEAR_PERI_REG_MASK(I2SCONF,I2S_I2S_RESET_MASK);
-
-	//Select 16bits per channel (FIFO_MOD=0), no DMA access (FIFO only)
-	CLEAR_PERI_REG_MASK(I2S_FIFO_CONF, I2S_I2S_DSCR_EN|(I2S_I2S_RX_FIFO_MOD<<I2S_I2S_RX_FIFO_MOD_S)|(I2S_I2S_TX_FIFO_MOD<<I2S_I2S_TX_FIFO_MOD_S));
-	//Enable DMA in i2s subsystem
-	SET_PERI_REG_MASK(I2S_FIFO_CONF, I2S_I2S_DSCR_EN);
-
-	//tx/rx binaureal
-	CLEAR_PERI_REG_MASK(I2SCONF_CHAN, (I2S_TX_CHAN_MOD<<I2S_TX_CHAN_MOD_S)|(I2S_RX_CHAN_MOD<<I2S_RX_CHAN_MOD_S));
-
-	//?
-	WRITE_PERI_REG(I2SRXEOF_NUM, 0x80);
-
-	//Clear int
-	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
-			I2S_I2S_RX_WFULL_INT_CLR|I2S_I2S_PUT_DATA_INT_CLR|I2S_I2S_TAKE_DATA_INT_CLR);
-	CLEAR_PERI_REG_MASK(I2SINT_CLR, I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
-			I2S_I2S_RX_WFULL_INT_CLR|I2S_I2S_PUT_DATA_INT_CLR|I2S_I2S_TAKE_DATA_INT_CLR);
-
-	//trans master&rece slave,MSB shift,right_first,msb right
-	CLEAR_PERI_REG_MASK(I2SCONF, I2S_TRANS_SLAVE_MOD|
-						(I2S_BITS_MOD<<I2S_BITS_MOD_S)|
-						(I2S_BCK_DIV_NUM <<I2S_BCK_DIV_NUM_S)|
-						(I2S_CLKM_DIV_NUM<<I2S_CLKM_DIV_NUM_S));
-	SET_PERI_REG_MASK(I2SCONF, I2S_RIGHT_FIRST|I2S_MSB_RIGHT|I2S_RECE_SLAVE_MOD|
-						I2S_RECE_MSB_SHIFT|I2S_TRANS_MSB_SHIFT|
-						((16&I2S_BCK_DIV_NUM )<<I2S_BCK_DIV_NUM_S)|
-						((7&I2S_CLKM_DIV_NUM)<<I2S_CLKM_DIV_NUM_S));
-
-
-	//No idea if ints are needed...
-	//clear int
-	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
-			I2S_I2S_RX_WFULL_INT_CLR|I2S_I2S_PUT_DATA_INT_CLR|I2S_I2S_TAKE_DATA_INT_CLR);
-	CLEAR_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
-			I2S_I2S_RX_WFULL_INT_CLR|I2S_I2S_PUT_DATA_INT_CLR|I2S_I2S_TAKE_DATA_INT_CLR);
-	//enable int
-	SET_PERI_REG_MASK(I2SINT_ENA,   I2S_I2S_TX_REMPTY_INT_ENA|I2S_I2S_TX_WFULL_INT_ENA|
-	I2S_I2S_RX_REMPTY_INT_ENA|I2S_I2S_TX_PUT_DATA_INT_ENA|I2S_I2S_RX_TAKE_DATA_INT_ENA);
-
-
-
-	//Start transmit
-	SET_PERI_REG_MASK(I2SCONF,I2S_I2S_TX_START);
-
-/*
-	while(1) {
-		printf("SLC_INT_RAW %x %x\n", READ_PERI_REG(SLC_INT_RAW), READ_PERI_REG(SLC_TX_STATUS));
-	}
-*/
-}
-
-
-void i2sSetRate(int rate) {
-/*
-	CLEAR_PERI_REG_MASK(I2SCONF, I2S_TRANS_SLAVE_MOD|
-						(I2S_BITS_MOD<<I2S_BITS_MOD_S)|
-						(I2S_BCK_DIV_NUM <<I2S_BCK_DIV_NUM_S)|
-						(I2S_CLKM_DIV_NUM<<I2S_CLKM_DIV_NUM_S));
-	SET_PERI_REG_MASK(I2SCONF, I2S_RIGHT_FIRST|I2S_MSB_RIGHT|I2S_RECE_SLAVE_MOD|
-						I2S_RECE_MSB_SHIFT|I2S_TRANS_MSB_SHIFT|
-						((16&I2S_BCK_DIV_NUM )<<I2S_BCK_DIV_NUM_S)|
-						((7&I2S_CLKM_DIV_NUM)<<I2S_CLKM_DIV_NUM_S));
-*/
-}
-
-struct madPrivateData madParms;
-
-
-unsigned int *currDMABuff=NULL;
-int currDMABuffPos=0;
-
 void render_sample_block(short *short_sample_buff, int no_samples) {
-	int i, s;
-	static int err=0;
+	int i;
 	unsigned int samp;
-	//short_sample_buff is signed integer
-
-	if (currDMABuff==NULL || currDMABuffPos==DMABUFLEN) {
-		//We need a new buffer. Pop one from the queue.
-		xQueueReceive(dmaQueue, &currDMABuff, portMAX_DELAY);
-		currDMABuffPos=0;
-	}
 
 	for (i=0; i<no_samples; i++) {
 		samp=(short_sample_buff[i]);
 		samp=(samp)&0xffff;
 		samp=(samp<<16)|samp;
-		currDMABuff[currDMABuffPos++]=short_sample_buff[i];
+		i2sPushSample(samp);
 	}
 }
 
 void set_dac_sample_rate(int rate) {
 //	printf("sr %d\n", rate);
 }
+
 
 //The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
 #define READBUFSZ (2106+64)
