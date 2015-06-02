@@ -30,17 +30,17 @@ static xSemaphoreHandle semCanWrite;
 static xSemaphoreHandle mux;
 
 
-#if 0
 
+//#define FAKE_SPI_BUFF
+#ifdef FAKE_SPI_BUFF
 //Fake a very small SPI ram buffer...
 #undef SPIRAMSIZE
-#define SPIRAMSIZE 1000
+#define SPIRAMSIZE 2000
 static char fakespiram[SPIRAMSIZE];
 #define spiRamInit() while(0)
 #define spiRamTest() 1
 #define spiRamWrite(pos, buf, n) memcpy(&fakespiram[pos], buf, n)
 #define spiRamRead(pos, buf, n) memcpy(buf, &fakespiram[pos], n)
-
 #endif
 
 

@@ -48,55 +48,51 @@
 #define PRIO_MAD 3
 
 
-//#define UART_HACK
-#ifdef UART_HACK
-
-//Kill messages as much as possible; they interfere with the sound...
-#define printf while(0)
-
-//We can use the UART to fake a 3-bit, 11KHz pwm-ish signal 
-void uartPushSample(unsigned int s) {
-	char pwm[]={0x00, 0x01, 0x11, 0x15, 0x55, 0x5D, 0xDD, 0xDF, 0xFF};
-	static int err;
-	static int ctr=0;
-	int v;
-
-	ctr++;
-	if (ctr==3) {
-		ctr=0;
-		s=s+32768; //to unsigned
-		s=s+err;
-		v=s>>13;
-		if (v>8) v=8;
-		if (v<0) v=0;
-		uart_tx_one_char(UART0, pwm[v+1])
-		err=(s-v<<13); //simple error diffusion
-	}
-}
+//#define PWM_HACK
+#ifdef PWM_HACK
+const unsigned int ICACHE_RODATA_ATTR fakePwm[]={ 0x00000010, 0x00000410, 0x00400410, 0x00400C10, 0x00500C10, 0x00D00C10, 0x20D00C10, 0x21D00C10, 0x21D80C10, 
+	0xA1D80C10, 0xA1D80D10, 0xA1D80D30, 0xA1DC0D30, 0xA1DC8D30, 0xB1DC8D30, 0xB9DC8D30, 0xB9FC8D30, 0xBDFC8D30, 0xBDFE8D30, 
+	0xBDFE8D32, 0xBDFE8D33, 0xBDFECD33, 0xFDFECD33, 0xFDFECD73, 0xFDFEDD73, 0xFFFEDD73, 0xFFFEDD7B, 0xFFFEFD7B, 0xFFFFFD7B, 
+	0xFFFFFDFB, 0xFFFFFFFB, 0xFFFFFFFF};
 #endif
 
 
+
 //The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
-#define READBUFSZ (2106)
+#define READBUFSZ (2106+64)
 static char readBuf[READBUFSZ]; 
 
 //This routine is called by the NXP modifications of libmad. It passes us (for the mono synth)
 //32 16-bit samples.
 void render_sample_block(short *short_sample_buff, int no_samples) {
 	int i;
-	unsigned int samp;
+	int samp;
 
 	for (i=0; i<no_samples; i++) {
-#ifndef UART_HACK
+#ifndef PWM_HACK
+		//We can send a 32-bit sample to the I2S subsystem and the DAC will neatly split it up in 2
+		//16-bit analog values, one for left and one for right.
+
 		//Duplicate 16-bit sample to both the L and R channel
 		samp=(short_sample_buff[i]);
 		samp=(samp)&0xffff;
 		samp=(samp<<16)|samp;
+#else
+		//Okay, when this is enabled it means a speaker is connected *directly* to the data output. Instead of
+		//having a nice PCM signal, it's best to fake a PWM signal here.
+		static int err=0;
+		samp=short_sample_buff[i];
+		samp=(samp+32768);	//to unsigned
+		samp-=err;			//Add the error we made when rounding the previous sample (error diffusion)
+		//clip value
+		if (samp>65535) samp=65535;
+		if (samp<0) samp=0;
+		//send pwm value for sample value
+		samp=fakePwm[samp>>11];
+		err=(samp&0x7ff);	//Save rounding error.
+#endif
 		//Send the sample.
 		i2sPushSample(samp);
-#else
-		uartPushSample(short_sample_buff[i]);
-#endif
 	}
 }
 
@@ -113,16 +109,16 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(struct mad_stream *stream) {
 	memmove(readBuf, stream->next_frame, rem);
 
 	while (rem<sizeof(readBuf)) {
-		n=spiRamFifoFill();
-		if (n>((sizeof(readBuf)-rem))) n=(sizeof(readBuf)-rem); //only take what we need
-		if (n==0) {
+		n=(sizeof(readBuf)-rem); 	//Calculate amount of bytes we need to fill buffer.
+		i=spiRamFifoFill();
+		if (i<n) n=i; 				//If the fifo can give us less, only take that amount
+		if (n==0) {					//Can't take anything?
 			//Wait until there is enough data in the buffer. This only happens when the data feed 
 			//rate is too low, and shouldn't normally be needed!
-			printf("Buf uflow %d < %d \n", spiRamFifoFill(), (sizeof(readBuf)-rem));
+			printf("Buf uflow, need %d bytes\n", sizeof(readBuf)-rem);
 			//We both silence the output as well as wait a while by pushing silent samples into the i2s system.
 			//This waits for about 200mS
 			for (n=0; n<441*2; n++) i2sPushSample(0);
-			n=spiRamFifoFill(); //See if we already have some bytes
 		} else {
 			//Read some bytes from the FIFO to re-fill the buffer.
 			spiRamFifoRead(&readBuf[rem], n);
@@ -218,7 +214,7 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 			n=read(fd, wbuf, sizeof(wbuf));
 			if (n>0) spiRamFifoWrite(wbuf, n);
 			
-			if (!madRunning && spiRamFifoFree()<=sizeof(wbuf)) {
+			if ((!madRunning) && (spiRamFifoFree()<=sizeof(wbuf))) {
 				//Buffer is filled. Start up the MAD task. Yes, the 2060 bytes of stack is a fairly large amount but MAD seems to need it.
 				if (xTaskCreate(tskmad, "tskmad", 2060, NULL, PRIO_MAD, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task! Out of memory?\n");
 				madRunning=1;
@@ -249,11 +245,9 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 	wifi_station_connect();
 	free(config);
 
-#ifndef UART_HACK
 	//Initialize I2S and fire up the reader task. The reader task will fire up the MP3 decoder as soon
 	//as it has read enough MP3 data.
 	i2sInit();
-#endif
 	if (xTaskCreate(tskreader, "tskreader", 230, NULL, PRIO_READER, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
 	//We're done. Delete this task.
 	vTaskDelete(NULL);
