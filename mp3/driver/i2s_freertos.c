@@ -119,7 +119,6 @@ void ICACHE_FLASH_ATTR i2sInit() {
 		i2sBufDesc[x].buf_ptr=(uint32_t)&i2sBuf[x][0];
 		i2sBufDesc[x].unused=0;
 		i2sBufDesc[x].next_link_ptr=(int)((x<(I2SDMABUFCNT-1))?(&i2sBufDesc[x+1]):(&i2sBufDesc[0]));
-		printf("Desc %x\n", &i2sBufDesc[x]);
 	}
 	
 	//Feed dma the 1st buffer desc addr

@@ -24,28 +24,7 @@
 #include "../mad/frame.h"
 #include "../mad/synth.h"
 #include "i2s_freertos.h"
-#include "spiram.h"
-
-
-//We need some defines that aren't in some RTOS SDK versions. Define them here if we can't find them.
-#ifndef i2c_bbpll
-#define i2c_bbpll                                 0x67
-#define i2c_bbpll_en_audio_clock_out            4
-#define i2c_bbpll_en_audio_clock_out_msb        7
-#define i2c_bbpll_en_audio_clock_out_lsb        7
-#define i2c_bbpll_hostid                           4
-
-#define i2c_writeReg_Mask(block, host_id, reg_add, Msb, Lsb, indata)  rom_i2c_writeReg_Mask(block, host_id, reg_add, Msb, Lsb, indata)
-#define i2c_readReg_Mask(block, host_id, reg_add, Msb, Lsb)  rom_i2c_readReg_Mask(block, host_id, reg_add, Msb, Lsb)
-#define i2c_writeReg_Mask_def(block, reg_add, indata) \
-      i2c_writeReg_Mask(block, block##_hostid,  reg_add,  reg_add##_msb,  reg_add##_lsb,  indata)
-#define i2c_readReg_Mask_def(block, reg_add) \
-      i2c_readReg_Mask(block, block##_hostid,  reg_add,  reg_add##_msb,  reg_add##_lsb)
-#endif
-#ifndef ETS_SLC_INUM
-#define ETS_SLC_INUM       1
-#endif
-
+#include "spiram_fifo.h"
 
 //The server to connect to
 #define server_ip "192.168.12.1"
@@ -63,30 +42,42 @@
 #define AP_PASS "thesumof6+6=12"
 */
 
-//TODO: REFACTOR!
-struct madPrivateData {
-	int fd;
-	xSemaphoreHandle muxBufferBusy;
-	xSemaphoreHandle semNeedRead;
-	int fifoLen;
-	int fifoRaddr;
-	int fifoWaddr;
-};
-
-
-struct madPrivateData madParms;
-
-//Parameters for the input buffer behaviour
-#define SPIRAMSIZE (128*1024)	//Size of the SPI RAM used as an input buffer
-#define SPIREADSIZE 64 			//Read burst size, in bytes, needs to be multiple of 4 and <=64
-#define SPILOWMARK (92*1024)	//Don't start reading from network until spi ram is emptied below this mark
 
 //Priorities of the reader and the decoder thread. Higher = higher prio.
 #define PRIO_READER 2
 #define PRIO_MAD 3
 
+
+//#define UART_HACK
+#ifdef UART_HACK
+
+//Kill messages as much as possible; they interfere with the sound...
+#define printf while(0)
+
+//We can use the UART to fake a 3-bit, 11KHz pwm-ish signal 
+void uartPushSample(unsigned int s) {
+	char pwm[]={0x00, 0x01, 0x11, 0x15, 0x55, 0x5D, 0xDD, 0xDF, 0xFF};
+	static int err;
+	static int ctr=0;
+	int v;
+
+	ctr++;
+	if (ctr==3) {
+		ctr=0;
+		s=s+32768; //to unsigned
+		s=s+err;
+		v=s>>13;
+		if (v>8) v=8;
+		if (v<0) v=0;
+		uart_tx_one_char(UART0, pwm[v+1])
+		err=(s-v<<13); //simple error diffusion
+	}
+}
+#endif
+
+
 //The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
-#define READBUFSZ (2106+64)
+#define READBUFSZ (2106)
 static char readBuf[READBUFSZ]; 
 
 //This routine is called by the NXP modifications of libmad. It passes us (for the mono synth)
@@ -96,12 +87,16 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 	unsigned int samp;
 
 	for (i=0; i<no_samples; i++) {
+#ifndef UART_HACK
 		//Duplicate 16-bit sample to both the L and R channel
 		samp=(short_sample_buff[i]);
 		samp=(samp)&0xffff;
 		samp=(samp<<16)|samp;
 		//Send the sample.
 		i2sPushSample(samp);
+#else
+		uartPushSample(short_sample_buff[i]);
+#endif
 	}
 }
 
@@ -110,48 +105,33 @@ void set_dac_sample_rate(int rate) {
 //	printf("sr %d\n", rate);
 }
 
-static enum  mad_flow ICACHE_FLASH_ATTR input(void *data, struct mad_stream *stream) {
+static enum  mad_flow ICACHE_FLASH_ATTR input(struct mad_stream *stream) {
 	int n, i;
 	int rem, fifoLen;
-	char rbuf[SPIREADSIZE];
-	struct madPrivateData *p = (struct madPrivateData*)data;
 	//Shift remaining contents of buf to the front
 	rem=stream->bufend-stream->next_frame;
 	memmove(readBuf, stream->next_frame, rem);
 
-	//Wait until there is enough data in the buffer. This only happens when the data feed 
-	//rate is too low, and shouldn't normally be needed!
-	do {
-		xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
-		fifoLen=p->fifoLen;
-		xSemaphoreGive(p->muxBufferBusy);
-		if (fifoLen<(sizeof(readBuf)-rem)) {
-			printf("Buf uflow %d < %d \n", (p->fifoLen), (sizeof(readBuf)-rem));
+	while (rem<sizeof(readBuf)) {
+		n=spiRamFifoFill();
+		if (n>((sizeof(readBuf)-rem))) n=(sizeof(readBuf)-rem); //only take what we need
+		if (n==0) {
+			//Wait until there is enough data in the buffer. This only happens when the data feed 
+			//rate is too low, and shouldn't normally be needed!
+			printf("Buf uflow %d < %d \n", spiRamFifoFill(), (sizeof(readBuf)-rem));
 			//We both silence the output as well as wait a while by pushing silent samples into the i2s system.
-			//THis waits for about 100mS
-			for (n=0; n<441; n++) i2sPushSample(0);
+			//This waits for about 200mS
+			for (n=0; n<441*2; n++) i2sPushSample(0);
+			n=spiRamFifoFill(); //See if we already have some bytes
+		} else {
+			//Read some bytes from the FIFO to re-fill the buffer.
+			spiRamFifoRead(&readBuf[rem], n);
+			rem+=n;
 		}
-	} while (fifoLen<(sizeof(readBuf)-rem));
-
-	while (rem<=(READBUFSZ-64)) {
-		//Grab 64 bytes of data from the SPI RAM fifo
-		xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
-		spiRamRead(p->fifoRaddr, rbuf, SPIREADSIZE);
-		p->fifoRaddr+=SPIREADSIZE;
-		if (p->fifoRaddr>=SPIRAMSIZE) p->fifoRaddr-=SPIRAMSIZE;
-		p->fifoLen-=SPIREADSIZE;
-		xSemaphoreGive(p->muxBufferBusy);
-
-		//Move data into place
-		memcpy(&readBuf[rem], rbuf, SPIREADSIZE);
-		rem+=sizeof(rbuf);
 	}
 
-	//Let reader thread read more data if needed
-	if (fifoLen<SPILOWMARK) xSemaphoreGive(p->semNeedRead);
-
 	//Okay, let MAD decode the buffer.
-	mad_stream_buffer(stream, readBuf, rem);
+	mad_stream_buffer(stream, readBuf, sizeof(readBuf));
 	return MAD_FLOW_CONTINUE;
 }
 
@@ -166,7 +146,6 @@ static enum mad_flow ICACHE_FLASH_ATTR error(void *data, struct mad_stream *stre
 //output it to the I2S port.
 void ICACHE_FLASH_ATTR tskmad(void *pvParameters){
 	int r;
-	struct madPrivateData *p=&madParms; //pvParameters;
 	struct mad_stream *stream;
 	struct mad_frame *frame;
 	struct mad_synth *synth;
@@ -182,7 +161,7 @@ void ICACHE_FLASH_ATTR tskmad(void *pvParameters){
 	mad_frame_init(frame);
 	mad_synth_init(synth);
 	while(1) {
-		input(p, stream); //calls mad_stream_buffer internally
+		input(stream); //calls mad_stream_buffer internally
 		while(1) {
 			r=mad_frame_decode(frame, stream);
 			if (r==-1) {
@@ -228,48 +207,25 @@ int ICACHE_FLASH_ATTR openConn() {
 
 //Reader task. This will try to read data from a TCP socket into the SPI fifo buffer.
 void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
-	struct madPrivateData *p=&madParms;//pvParameters;
-	fd_set fdsRead;
 	int madRunning=0;
-	char wbuf[SPIREADSIZE];
+	char wbuf[64];
 	int n, l, inBuf;
-	p->fd=-1;
+	int fd;
 	while(1) {
-		if (p->fd==-1) p->fd=openConn();
-		printf("Reading into SPI buffer...\n");
+		fd=openConn();
+		printf("Reading into SPI RAM FIFO...\n");
 		do {
-			//Grab amount of buffer full-ness
-			xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
-			inBuf=p->fifoLen;
-			xSemaphoreGive(p->muxBufferBusy);
-			if (inBuf<(SPIRAMSIZE-SPIREADSIZE)) {
-//				printf("Fifo fill: %d\n", inBuf);
-				//We can add some data. Read data from fd into buffer. Make sure we read 64 bytes.
-				l=0;
-				while (l!=SPIREADSIZE) {
-					n=read(p->fd, &wbuf[l], SPIREADSIZE-l);
-					l+=n;
-					if (n==0) break;
-				}
-				//Write data into SPI fifo. We need to 
-				xSemaphoreTake(p->muxBufferBusy, portMAX_DELAY);
-				spiRamWrite(p->fifoWaddr, wbuf, SPIREADSIZE);
-				p->fifoWaddr+=SPIREADSIZE;
-				if (p->fifoWaddr>=SPIRAMSIZE) p->fifoWaddr-=SPIRAMSIZE;
-				p->fifoLen+=SPIREADSIZE;
-				xSemaphoreGive(p->muxBufferBusy);
-				taskYIELD(); //don't starve the mp3 output thread
-				if (n==0) break; //ToDo: Handle EOF better
+			n=read(fd, wbuf, sizeof(wbuf));
+			if (n>0) spiRamFifoWrite(wbuf, n);
+			
+			if (!madRunning && spiRamFifoFree()<=sizeof(wbuf)) {
+				//Buffer is filled. Start up the MAD task. Yes, the 2060 bytes of stack is a fairly large amount but MAD seems to need it.
+				if (xTaskCreate(tskmad, "tskmad", 2060, NULL, PRIO_MAD, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task! Out of memory?\n");
+				madRunning=1;
 			}
-		} while (inBuf<(SPIRAMSIZE-64));
-		if (!madRunning) {
-			//Buffer is filled. Start up the MAD task. Yes, the 2060 bytes of stack is a fair amount but MAD seems to need it.
-			if (xTaskCreate(tskmad, "tskmad", 2060, NULL, PRIO_MAD, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task! Out of memory?\n");
-			madRunning=1;
-		}
-		printf("Read done.\n");
-		//Try to take the semaphore. This will wait until the mad task signals it needs more data.
-		xSemaphoreTake(p->semNeedRead, portMAX_DELAY);
+		} while (n>0);
+		close(fd);
+		printf("Read done, connection closed.\n");
 	}
 }
 
@@ -293,9 +249,11 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 	wifi_station_connect();
 	free(config);
 
+#ifndef UART_HACK
 	//Initialize I2S and fire up the reader task. The reader task will fire up the MP3 decoder as soon
 	//as it has read enough MP3 data.
 	i2sInit();
+#endif
 	if (xTaskCreate(tskreader, "tskreader", 230, NULL, PRIO_READER, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
 	//We're done. Delete this task.
 	vTaskDelete(NULL);
@@ -316,20 +274,13 @@ user_init(void)
 	
 	//Set the UART to 115200 baud
 	UART_SetBaudrate(0, 115200);
+
 	//Initialize the SPI RAM chip communications and see if it actually retains some bytes. If it
 	//doesn't, warn user.
-	spiRamInit();
-	if (!spiRamTest()) {
+	if (!spiRamFifoInit()) {
 		printf("SPI RAM chip does not seem to work. Is it connected correctly?\n");
 		while(1);
 	}
-
-	madParms.fifoLen=0;
-	madParms.fifoRaddr=0;
-	madParms.fifoWaddr=0;
-	madParms.muxBufferBusy=xSemaphoreCreateMutex();
-	vSemaphoreCreateBinary(madParms.semNeedRead);
-//	printf("Starting tasks...\n");
 	xTaskCreate(tskconnect, "tskconnect", 200, NULL, 3, NULL);
 }
 

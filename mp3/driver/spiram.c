@@ -8,7 +8,9 @@
  * /CS pin: that needs to be connected to IO0. The chip is driven in 1-bit SPI
  * mode: theoretically, we can move data faster by using double- or quad-SPI
  * mode but that is not implemented here. The chip also is used like a generic
- * SPI device, nothing memory-mapped like the main flash.
+ * SPI device, nothing memory-mapped like the main flash. Also: these routines
+ * are not thread-safe; use mutexes around them if you access the SPI RAM from
+ * different threads.
  *
  * Modification history:
  *     2015/06/01, v1.0 File created.
@@ -59,6 +61,7 @@ void ICACHE_FLASH_ATTR spiRamInit() {
 void spiRamRead(int addr, char *buff, int len) {
 	int i;
 	int *p=(int*)buff;
+	int d;
 	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
 	SET_PERI_REG_MASK(SPI_USER(HSPI), SPI_CS_SETUP|SPI_CS_HOLD|SPI_USR_COMMAND|SPI_USR_ADDR|SPI_USR_MISO);
 	CLEAR_PERI_REG_MASK(SPI_USER(HSPI), SPI_FLASH_MODE|SPI_USR_MOSI);
@@ -69,8 +72,21 @@ void spiRamRead(int addr, char *buff, int len) {
 	WRITE_PERI_REG(SPI_USER2(HSPI), (((7&SPI_USR_COMMAND_BITLEN)<<SPI_USR_COMMAND_BITLEN_S) | 0x03));
 	SET_PERI_REG_MASK(SPI_CMD(HSPI), SPI_USR);
 	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
-	for (i=0; i<(len+3)/4; i++) {
-		p[i]=READ_PERI_REG(SPI_W(HSPI, i));
+//	if ((((int)buff)&3)==0) {
+	if (0) {
+		//Aligned dest addr. Copy 32 bits at a time
+		for (i=0; i<(len+3)/4; i++) {
+			p[i]=READ_PERI_REG(SPI_W(HSPI, i));
+		}
+	} else {
+		//Unaligned dest address. Copy 8bit at a time
+		for (i=0; i<(len+3)/4; i++) {
+			d=READ_PERI_REG(SPI_W(HSPI, i));
+			buff[i*4+0]=(d>>0)&0xff;
+			buff[i*4+1]=(d>>8)&0xff;
+			buff[i*4+2]=(d>>16)&0xff;
+			buff[i*4+3]=(d>>24)&0xff;
+		}
 	}
 }
 
@@ -78,6 +94,7 @@ void spiRamRead(int addr, char *buff, int len) {
 void spiRamWrite(int addr, char *buff, int len) {
 	int i;
 	int *p=(int*)buff;
+	int d;
 	while(READ_PERI_REG(SPI_CMD(HSPI))&SPI_USR) ;
 	SET_PERI_REG_MASK(SPI_USER(HSPI), SPI_CS_SETUP|SPI_CS_HOLD|SPI_USR_COMMAND|SPI_USR_ADDR|SPI_USR_MOSI);
 	CLEAR_PERI_REG_MASK(SPI_USER(HSPI), SPI_FLASH_MODE|SPI_USR_MISO);
@@ -86,8 +103,21 @@ void spiRamWrite(int addr, char *buff, int len) {
 			((23&SPI_USR_ADDR_BITLEN)<<SPI_USR_ADDR_BITLEN_S)); //address is 24 bits A0-A23
 	WRITE_PERI_REG(SPI_ADDR(HSPI), addr<<8); //write address
 	WRITE_PERI_REG(SPI_USER2(HSPI), (((7&SPI_USR_COMMAND_BITLEN)<<SPI_USR_COMMAND_BITLEN_S) | 0x02));
-	for (i=0; i<(len+3)/4; i++) {
-		WRITE_PERI_REG(SPI_W(HSPI, (i)), p[i]);
+//	if ((((int)buff)&3)==0) {
+	if (0) {
+		//Aligned src address. Copy 32bit at a time
+		for (i=0; i<(len+3)/4; i++) {
+			WRITE_PERI_REG(SPI_W(HSPI, (i)), p[i]);
+		}
+	} else {
+		//Unaligned src. Copy byte-wise.
+		for (i=0; i<(len+3)/4; i++) {
+			d=buff[i*4+0]<<0;
+			d|=buff[i*4+1]<<8;
+			d|=buff[i*4+2]<<16;
+			d|=buff[i*4+3]<<24;
+			WRITE_PERI_REG(SPI_W(HSPI, (i)), d);
+		}
 	}
 	SET_PERI_REG_MASK(SPI_CMD(HSPI), SPI_USR);
 }
@@ -95,7 +125,7 @@ void spiRamWrite(int addr, char *buff, int len) {
 
 //Simple routine to see if the SPI actually stores bytes. This is not a full memory test, but will tell
 //you if the RAM chip is connected well.
-void ICACHE_FLASH_ATTR spiRamTest() {
+int ICACHE_FLASH_ATTR spiRamTest() {
 	int x;
 	int err=0;
 	char a[64];
@@ -103,7 +133,7 @@ void ICACHE_FLASH_ATTR spiRamTest() {
 	char aa, bb;
 	for (x=0; x<64; x++) {
 		a[x]=x^(x<<2);
-		b[x]=x;
+		b[x]=0xaa^x;
 	}
 	spiRamWrite(0x0, a, 64);
 	spiRamWrite(0x100, b, 64);
@@ -112,7 +142,7 @@ void ICACHE_FLASH_ATTR spiRamTest() {
 	spiRamRead(0x100, b, 64);
 	for (x=0; x<64; x++) {
 		aa=x^(x<<2);
-		bb=x;
+		bb=0xaa^x;
 		if (aa!=a[x]) {
 			err=1;
 //			printf("aa: 0x%x != 0x%x\n", aa, a[x]);
@@ -122,5 +152,5 @@ void ICACHE_FLASH_ATTR spiRamTest() {
 //			printf("bb: 0x%x != 0x%x\n", bb, b[x]);
 		}
 	}
-	return !err
+	return !err;
 }
