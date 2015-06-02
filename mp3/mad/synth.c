@@ -40,9 +40,8 @@
  */
 
 static inline
-signed int scale(mad_fixed_t sample)
+signed short scale(mad_fixed_t sample)
 {
-  return sample >> (MAD_F_FRACBITS + 1 - 14);
 
   /* round */
   sample += (1L << (MAD_F_FRACBITS - 16));
@@ -54,7 +53,11 @@ signed int scale(mad_fixed_t sample)
     sample = -MAD_F_ONE;
 
   /* quantize */
-  return sample >> (MAD_F_FRACBITS + 1 - 16);
+  //The original nxp code had
+  //return sample >> (MAD_F_FRACBITS + 1 - 16);
+  //but somehow that clipped and distorted on loud sounds...
+  //This seems to be OK:
+  return sample >> (MAD_F_FRACBITS + 2 - 16);
 }
 /*
  * NAME:	synth->init()

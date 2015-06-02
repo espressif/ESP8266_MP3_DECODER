@@ -31,11 +31,11 @@ static xSemaphoreHandle mux;
 
 
 
-//#define FAKE_SPI_BUFF
+#define FAKE_SPI_BUFF
 #ifdef FAKE_SPI_BUFF
 //Fake a very small SPI ram buffer...
 #undef SPIRAMSIZE
-#define SPIRAMSIZE 2300
+#define SPIRAMSIZE 2500
 static char fakespiram[SPIRAMSIZE];
 #define spiRamInit() while(0)
 #define spiRamTest() 1
