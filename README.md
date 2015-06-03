@@ -1,10 +1,10 @@
-I2S MP3 example
+I2S MP3 webradio streaming example
 
 This is an example of how to use the I2S module inside the ESP8266 to output
-sound. In this case, it is used to output decoded MP3 data: the code described
-here basically is a webradio streamer which can connect to an Icecast server,
-take the MP3 data the server sends out, decode it and output it over the I2S
-bus to a DAC.
+sound. In this case, it is used to output decoded MP3 data (actually, more 
+accurately: MPEG2 layer III data): the code described here basically is a 
+webradio streamer which can connect to an Icecast server, take the MP3 data 
+the server sends out, decode it and output it over the I2S bus to a DAC.
 
 * Configuration options, building
 
@@ -107,7 +107,9 @@ so at a certain moment there will be no free buffers left. The queue
 system of FreeRTOS will suspend the mp3 decoding task when that
 happens, allowing the ESP8266 to attend to other tasks.
 
-
+While the ESP8266 is able to run at 160MHz, we're leaving it at its
+default speed of 80MHz here: it seems that at that speed the ESP8266
+is perfectly capable of decoding even 320KBit MP3 data.
 
 
 
