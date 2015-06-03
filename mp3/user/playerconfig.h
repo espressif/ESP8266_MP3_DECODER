@@ -4,14 +4,24 @@
 /*
 Define the access point name and its password here.
 */
-#define AP_NAME "testjmd"
-#define AP_PASS "pannenkoek"
+//#define AP_NAME "testjmd"
+//#define AP_PASS "pannenkoek"
+
+#define AP_NAME "TP-LINK_5043A0"
+#define AP_PASS "10001000"
 
 /* Define stream URL here. For example, the URL to the MP3 stream of a certain Dutch radio station
 is http://icecast.omroep.nl/3fm-sb-mp3 . This translates of a server name of "icecast.omroep.nl"
 and a path of "/3fm-sb-mp3". The port usually is 80 (the standard HTTP port) */
-//#define PLAY_SERVER "icecast.omroep.nl"
-//#define PLAY_PATH "/3fm-sb-mp3"
+#define PLAY_SERVER "icecast.omroep.nl"
+#define PLAY_PATH "/3fm-sb-mp3"
+#define PLAY_PORT 80
+
+/*
+Here's a DI.fm stream
+*/
+//#define PLAY_SERVER "pub7.di.fm"
+//#define PLAY_PATH "/di_classiceurodance"
 //#define PLAY_PORT 80
 
 /* You can use something like this to connect to a local mpd server which has a configured 
@@ -33,8 +43,15 @@ WARNING: Don't use this define if you play non-stream files. It will presume the
 on the server side is waaay too fast and will default to playing back the stream too fast.*/
 #define ADD_DEL_SAMPLES
 
+/*ADD_DEL_SAMPLES parameter:
+Size of the cumulative buffer offset before we are going to add or remove a sample
+The lower this number, the more aggressive we're adjusting the sample rate. Lower numbers give
+better resistance to buffer over/underflows due to clock differences, but also can result in
+the music sounding higher/lower due to network issues.*/
+#define ADD_DEL_BUFFPERSAMP (32*1024)
+
 /*While connecting an I2S codec to the I2S port of the ESP is obviously the best way to get nice
-44KHz 16-bit sounds out of the ESP, it is possible to run this code without the codec. For
+16-bit sounds out of the ESP, it is possible to run this code without the codec. For
 this to work, instead of outputting a 2x16bit PCM sample the DAC can decode, we use the I2S
 port as a makeshift 5-bit PWM generator. To do this, we map every mp3 sound sample to a
 value that has an amount of 1's set that's linearily related to the sound samples value and

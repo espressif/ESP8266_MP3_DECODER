@@ -4,7 +4,9 @@ This is an example of how to use the I2S module inside the ESP8266 to output
 sound. In this case, it is used to output decoded MP3 data (actually, more 
 accurately: MPEG2 layer III data): the code described here basically is a 
 webradio streamer which can connect to an Icecast server, take the MP3 data 
-the server sends out, decode it and output it over the I2S bus to a DAC.
+the server sends out, decode it and output it over the I2S bus to a DAC. The
+MP3 decoder has been tested for bitrates up to 320KBit/s and sample
+rates of up to 48KHz.
 
 * Configuration options, building
 

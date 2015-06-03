@@ -33,8 +33,8 @@ const char streamPath[]=PLAY_PATH;
 const int streamPort=PLAY_PORT;
 
 //Priorities of the reader and the decoder thread. Higher = higher prio.
-#define PRIO_READER 1
-#define PRIO_MAD 2
+#define PRIO_READER 2
+#define PRIO_MAD 3
 
 #ifdef PWM_HACK
 //Array with 32-bit values which have one bit more set to '1' in every consecutive array index value
@@ -48,12 +48,6 @@ const unsigned int ICACHE_RODATA_ATTR fakePwm[]={ 0x00000010, 0x00000410, 0x0040
 #define READBUFSZ (2106)
 static char readBuf[READBUFSZ]; 
 
-
-//ADD_DEL_SAMPLES parameter:
-//Size of the cumulative buffer offset before we are going to add or remove a sample
-//The lower this number, the more aggressive we're adjusting the sample rate.
-#define BUFFSAMP 32*1024
-
 //This routine is called by the NXP modifications of libmad. It passes us (for the mono synth)
 //32 16-bit samples.
 void render_sample_block(short *short_sample_buff, int no_samples) {
@@ -62,7 +56,9 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 
 #ifdef ADD_DEL_SAMPLES
 	static int sampErr=0;
-	sampErr+=(spiRamFifoFill()-(spiRamFifoLen()/2));
+	//Target FIFO full-ness. This is the level we want the FIFO filled at.
+	int tgtFill=(spiRamFifoLen()*3)/4;
+	sampErr+=(spiRamFifoFill()-tgtFill);
 #endif
 
 
@@ -95,10 +91,10 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 #ifdef ADD_DEL_SAMPLES
 		//Dependent on the amount of buffer we have too much or too little, we're going to add or remove
 		//samples. This basically does error diffusion on the sample added or removed.
-		if (sampErr>BUFFSAMP) {
-			sampErr-=BUFFSAMP;
-		} else if (sampErr<-BUFFSAMP) {
-			sampErr+=BUFFSAMP;
+		if (sampErr>ADD_DEL_BUFFPERSAMP) {
+			sampErr-=ADD_DEL_BUFFPERSAMP;
+		} else if (sampErr<-ADD_DEL_BUFFPERSAMP) {
+			sampErr+=ADD_DEL_BUFFPERSAMP;
 			i2sPushSample(samp);
 			i2sPushSample(samp);
 		} else {
@@ -116,7 +112,8 @@ static oldRate=0;
 void set_dac_sample_rate(int rate) {
 	if (rate==oldRate) return;
 	oldRate=rate;
-//	printf("sr %d\n", rate);
+	printf("Rate %d\n", rate);
+	i2sSetRate(rate);
 }
 
 static enum  mad_flow ICACHE_FLASH_ATTR input(struct mad_stream *stream) {
@@ -158,7 +155,7 @@ static enum mad_flow ICACHE_FLASH_ATTR error(void *data, struct mad_stream *stre
 
 //This is the main mp3 decoding task. It will grab data from the input buffer FIFO in the SPI ram and
 //output it to the I2S port.
-void ICACHE_FLASH_ATTR tskmad(void *pvParameters){
+void ICACHE_FLASH_ATTR tskmad(void *pvParameters) {
 	int r;
 	struct mad_stream *stream;
 	struct mad_frame *frame;
@@ -220,6 +217,7 @@ int ICACHE_FLASH_ATTR openConn(const char *streamHost, const char *streamPath) {
 		if (sock==-1) {
 			continue;
 		}
+
 		remote_ip.sin_port = htons(streamPort);
 		printf("Connecting to server %s...\n", ipaddr_ntoa((const ip_addr_t*)&remote_ip.sin_addr.s_addr));
 		if (connect(sock, (struct sockaddr *)(&remote_ip), sizeof(struct sockaddr))!=00) {
@@ -300,9 +298,7 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 //We need this to tell the OS we're running at a higher clock frequency.
 extern void os_update_cpu_frequency(int mhz);
 
-void ICACHE_FLASH_ATTR
-user_init(void)
-{
+void ICACHE_FLASH_ATTR user_init(void) {
 	//Tell hardware to run at 160MHz instead of 80MHz
 	//This actually is not needed in normal situations... the hardware is quick enough to do
 	//MP3 decoding at 80MHz. It, however, seems to help with receiving data over long and/or unstable

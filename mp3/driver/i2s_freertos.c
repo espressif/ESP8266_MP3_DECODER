@@ -15,8 +15,7 @@ How does this work? Basically, to get sound, you need to:
 - Connect an I2S codec to the I2S pins on the ESP.
 - Start up a thread that's going to do the sound output
 - Call I2sInit()
-- Call I2sSetRate() with the sample rate you want (Currently unimplemented:
-  it will always default to 44100Hz)
+- Call I2sSetRate() with the sample rate you want.
 - Generate sound and call i2sPushSample() with 32-bit samples.
 The 32bit samples basically are 2 16-bit signed values (the analog values for
 the left and right channel) concatenated as (Rout<<16)+Lout
@@ -223,20 +222,38 @@ void ICACHE_FLASH_ATTR i2sInit() {
 }
 
 
-//Set the I2S sample rate.
-void i2sSetRate(int rate) {
-	//ToDo: implement this...
+#define BASEFREQ (12000000L)
+#define ABS(x) (((x)>0)?(x):(-(x)))
 
-/*
+//Set the I2S sample rate, in HZ
+void i2sSetRate(int rate) {
+	//Find closest divider 
+	int bestbck=0, bestfreq=0;
+	int tstfreq;
+	int i;
+	//Calculate the base divider for 16 bits of data
+	int div=(BASEFREQ/(rate*32));
+	//The base divider can be off by as much as <1 Compensate by trying to make the amount of bytes in the
+	//i2s cycle more than 16. Do this by trying the amounts from 16 to 32 and keeping the one that fits best.
+	for (i=16; i<32; i++) {
+		tstfreq=BASEFREQ/(div*i*2);
+//		printf("Best (%d,%d) cur (%d,%d) div %d\n", bestbck, bestfreq, i, tstfreq, ABS(rate-tstfreq));
+		if (ABS(rate-tstfreq)<ABS(rate-bestfreq)) {
+			bestbck=i;
+			bestfreq=tstfreq;
+		}
+	}
+
+//	printf("ReqRate %d Div %d Bck %d Frq %d\n", rate, div, bestbck, BASEFREQ/(div*bestbck*2));
+
 	CLEAR_PERI_REG_MASK(I2SCONF, I2S_TRANS_SLAVE_MOD|
 						(I2S_BITS_MOD<<I2S_BITS_MOD_S)|
 						(I2S_BCK_DIV_NUM <<I2S_BCK_DIV_NUM_S)|
 						(I2S_CLKM_DIV_NUM<<I2S_CLKM_DIV_NUM_S));
 	SET_PERI_REG_MASK(I2SCONF, I2S_RIGHT_FIRST|I2S_MSB_RIGHT|I2S_RECE_SLAVE_MOD|
 						I2S_RECE_MSB_SHIFT|I2S_TRANS_MSB_SHIFT|
-						((16&I2S_BCK_DIV_NUM )<<I2S_BCK_DIV_NUM_S)|
-						((7&I2S_CLKM_DIV_NUM)<<I2S_CLKM_DIV_NUM_S));
-*/
+						(((bestbck-1)&I2S_BCK_DIV_NUM )<<I2S_BCK_DIV_NUM_S)|
+						(((div-1)&I2S_CLKM_DIV_NUM)<<I2S_CLKM_DIV_NUM_S));
 }
 
 //Current DMA buffer we're writing to
