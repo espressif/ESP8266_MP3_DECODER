@@ -30,20 +30,29 @@ static xSemaphoreHandle semCanWrite;
 static xSemaphoreHandle mux;
 
 
+#define FIFO_LOWMARK (112*1024)
 
-#define FAKE_SPI_BUFF
+//While a large (tens to hundreds of K) buffer is necessary for Internet streams, on a
+//quiet network and with a direct connection to the stream server, you can get away with
+//a much smaller buffer. Enabling the following switch will disable accesses to the 
+//23LC1024 code and use a much smaller but internal buffer instead. You want to enable
+//this if you don't have a 23LC1024 chip connected to the ESP but still want to try
+//the MP3 decoder. Be warned, if your network isn't 100% quiet and latency-free, this
+//_will_ lead to stutters in the played MP3 stream!
+//#define FAKE_SPI_BUFF
+
+
 #ifdef FAKE_SPI_BUFF
-//Fake a very small SPI ram buffer...
+//Re-define a bunch of things so we use the internal buffer
 #undef SPIRAMSIZE
-#define SPIRAMSIZE 2153
+//allocate enough for about one mp3 frame
+#define SPIRAMSIZE 2076 
 static char fakespiram[SPIRAMSIZE];
 #define spiRamInit() while(0)
 #define spiRamTest() 1
 #define spiRamWrite(pos, buf, n) memcpy(&fakespiram[pos], buf, n)
 #define spiRamRead(pos, buf, n) memcpy(buf, &fakespiram[pos], n)
 #endif
-
-
 
 //Initialize the FIFO
 int ICACHE_FLASH_ATTR spiRamFifoInit() {
@@ -69,7 +78,7 @@ void ICACHE_FLASH_ATTR spiRamFifoRead(char *buff, int len) {
 //			printf("FIFO empty.\n");
 			//Drat, not enough data in FIFO. Wait till there's some written and try again.
 			xSemaphoreGive(mux);
-			xSemaphoreTake(semCanRead, portMAX_DELAY);
+			if (fifoFill<FIFO_LOWMARK) xSemaphoreTake(semCanRead, portMAX_DELAY);
 		} else {
 			//Read the data.
 			spiRamRead(fifoRpos, buff, n);

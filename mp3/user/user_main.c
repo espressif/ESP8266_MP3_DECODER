@@ -26,38 +26,59 @@
 #include "i2s_freertos.h"
 #include "spiram_fifo.h"
 
-//The server to connect to
-#define server_ip "192.168.12.1"
-//#define server_ip "192.168.40.117"
-//#define server_ip "192.168.1.4"
-//#define server_ip "192.168.4.100"
-#define server_port 1234
 
+//HTTP stream we're trying to play. Should start with 'http://'. The http
+//code is pretty trivial, so it doesn't support authorization, redirects, ports
+//etc.
+#if 0
+const char streamHost[]="pub7.di.fm";
+const char streamPath[]="/di_vocaltrance";
+const int streamPort=80;
+#endif
+#if 0
+const char streamHost[]="icecast.omroep.nl";
+const char streamPath[]="/3fm-sb-mp3";
+const int streamPort=80;
+#endif
+#if 1
+const char streamHost[]="192.168.33.128";
+const char streamPath[]="/";
+const int streamPort=8000;
+#endif
 
-
+#if 1
 #define AP_NAME "testjmd"
 #define AP_PASS "pannenkoek"
-/*
+#endif
+#if 0
 #define AP_NAME "wifi-2"
 #define AP_PASS "thesumof6+6=12"
-*/
+#endif
 
 
 //Priorities of the reader and the decoder thread. Higher = higher prio.
-#define PRIO_READER 2
-#define PRIO_MAD 3
+#define PRIO_READER 1
+#define PRIO_MAD 2
 
 
-#define PWM_HACK
+//While connecting an I2S codec to the I2S port of the ESP is obviously the best way to get nice
+//44KHz 16-bit sounds out of the ESP, it is possible to run this code without the codec. For
+//this to work, instead of outputting a 2x16bit PCM sample the DAC can decode, we use the I2S
+//port as a makeshift 5-bit PWM generator. To do this, we map every mp3 sound sample to a
+//value that has an amount of 1's set that's linearily related to the sound samples value and
+//then output that value on the I2S port. The net result is that the average analog value on the 
+//I2S data pin corresponds to the value of the MP3 sample we're trying to output.
+//#define PWM_HACK
+
 #ifdef PWM_HACK
+//Array with 32-bit values which have one bit more set to '1' in every consecutive array index value
 const unsigned int ICACHE_RODATA_ATTR fakePwm[]={ 0x00000010, 0x00000410, 0x00400410, 0x00400C10, 0x00500C10, 0x00D00C10, 0x20D00C10, 0x21D00C10, 0x21D80C10, 
 	0xA1D80C10, 0xA1D80D10, 0xA1D80D30, 0xA1DC0D30, 0xA1DC8D30, 0xB1DC8D30, 0xB9DC8D30, 0xB9FC8D30, 0xBDFC8D30, 0xBDFE8D30, 
 	0xBDFE8D32, 0xBDFE8D33, 0xBDFECD33, 0xFDFECD33, 0xFDFECD73, 0xFDFEDD73, 0xFFFEDD73, 0xFFFEDD7B, 0xFFFEFD7B, 0xFFFFFD7B, 
 	0xFFFFFDFB, 0xFFFFFFFB, 0xFFFFFFFF};
 #endif
 
-
-//The mp3 read buffer. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
+//The mp3 read buffer size. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
 #define READBUFSZ (2106+64)
 static char readBuf[READBUFSZ]; 
 
@@ -78,7 +99,7 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 		samp=(samp<<16)|samp;
 #else
 		//Okay, when this is enabled it means a speaker is connected *directly* to the data output. Instead of
-		//having a nice PCM signal, it's best to fake a PWM signal here.
+		//having a nice PCM signal, we fake a PWM signal here.
 		static int err=0;
 		samp=short_sample_buff[i];
 		samp=(samp+32768);	//to unsigned
@@ -114,7 +135,7 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(struct mad_stream *stream) {
 		if (n==0) {					//Can't take anything?
 			//Wait until there is enough data in the buffer. This only happens when the data feed 
 			//rate is too low, and shouldn't normally be needed!
-			printf("Buf uflow, need %d bytes\n", sizeof(readBuf)-rem);
+			printf("Buf uflow, need %d bytes. Waiting till buffer is filled again...\n", sizeof(readBuf)-rem);
 			//We both silence the output as well as wait a while by pushing silent samples into the i2s system.
 			//This waits for about 200mS
 			for (n=0; n<441*2; n++) i2sPushSample(0);
@@ -172,29 +193,51 @@ void ICACHE_FLASH_ATTR tskmad(void *pvParameters){
 	}
 }
 
+int getIpForHost(const char *host, struct sockaddr_in *ip) {
+	struct hostent *he;
+	struct in_addr **addr_list;
+	he=gethostbyname(host);
+	if (he==NULL) return 0;
+	addr_list=(struct in_addr **)he->h_addr_list;
+	if (addr_list[0]==NULL) return 0;
+	ip->sin_family=AF_INET;
+	memcpy(&ip->sin_addr, addr_list[0], sizeof(ip->sin_addr));
+	return 1;
+}
 
 
-//Open a connection to a TCP port
-int ICACHE_FLASH_ATTR openConn() {
+
+//Open a connection to a webserver and request an URL. Yes, this possibly is one of the worst ways to do this,
+//but RAM is at a premium here, and this works for most of the cases.
+int ICACHE_FLASH_ATTR openConn(const char *streamHost, const char *streamPath) {
+	int n, i;
 	while(1) {
-		int n, i;
 		struct sockaddr_in remote_ip;
-		int sock=socket(PF_INET, SOCK_STREAM, 0);
-		if (sock==-1) {
-//			printf("Client socket create error\n");
+		bzero(&remote_ip, sizeof(struct sockaddr_in));
+		if (!getIpForHost(streamHost, &remote_ip)) {
+			vTaskDelay(1000/portTICK_RATE_MS);
 			continue;
 		}
-		bzero(&remote_ip, sizeof(struct sockaddr_in));
-		remote_ip.sin_family = AF_INET;
-		remote_ip.sin_addr.s_addr = inet_addr(server_ip);
-		remote_ip.sin_port = htons(server_port);
-//		printf("Connecting to client...\n");
+		int sock=socket(PF_INET, SOCK_STREAM, 0);
+		if (sock==-1) {
+			continue;
+		}
+		remote_ip.sin_port = htons(streamPort);
+		printf("Connecting to server %s...\n", ipaddr_ntoa((const ip_addr_t*)&remote_ip.sin_addr.s_addr));
 		if (connect(sock, (struct sockaddr *)(&remote_ip), sizeof(struct sockaddr))!=00) {
 			close(sock);
 			printf("Conn err.\n");
 			vTaskDelay(1000/portTICK_RATE_MS);
 			continue;
 		}
+		//Cobble together HTTP request
+		write(sock, "GET ", 4);
+		write(sock, streamPath, strlen(streamPath));
+		write(sock, " HTTP/1.0\r\nHost: ", 17);
+		write(sock, streamHost, strlen(streamHost));
+		write(sock, "\r\n\r\n", 4);
+		//We ignore the headers that the server sends back... it's pretty dirty in general to do that,
+		//but it works here because the MP3 decoder skips it because it isn't valid MP3 data.
 		return sock;
 	}
 }
@@ -207,7 +250,7 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 	int n, l, inBuf;
 	int fd;
 	while(1) {
-		fd=openConn();
+		fd=openConn(streamHost, streamPath);
 		printf("Reading into SPI RAM FIFO...\n");
 		do {
 			n=read(fd, wbuf, sizeof(wbuf));
@@ -218,7 +261,7 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 				if (xTaskCreate(tskmad, "tskmad", 2100, NULL, PRIO_MAD, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task! Out of memory?\n");
 				madRunning=1;
 			}
-		} while (n>0);
+		} while (n>=0);
 		close(fd);
 		printf("Read done, connection closed.\n");
 	}
@@ -259,8 +302,10 @@ void ICACHE_FLASH_ATTR
 user_init(void)
 {
 	//Tell hardware to run at 160MHz instead of 80MHz
-	//Disabled because we don't need 160MHz to do something puny like decoding an MP3 file.
-#if 0
+	//This actually is not needed in normal situations... the hardware is quick enough to do
+	//MP3 decoding at 80MHz. It, however, helps with receiving data over long and/or unstable
+	//links, so you may want to leave it on.
+#if 1
 	SET_PERI_REG_MASK(0x3ff00014, BIT(0));
 	os_update_cpu_frequency(160);
 #endif
