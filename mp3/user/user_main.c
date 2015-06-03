@@ -48,6 +48,12 @@ const unsigned int ICACHE_RODATA_ATTR fakePwm[]={ 0x00000010, 0x00000410, 0x0040
 #define READBUFSZ (2106)
 static char readBuf[READBUFSZ]; 
 
+
+//ADD_DEL_SAMPLES parameter:
+//Size of the cumulative buffer offset before we are going to add or remove a sample
+//The lower this number, the more aggressive we're adjusting the sample rate.
+#define BUFFSAMP 32*1024
+
 //This routine is called by the NXP modifications of libmad. It passes us (for the mono synth)
 //32 16-bit samples.
 void render_sample_block(short *short_sample_buff, int no_samples) {
@@ -55,11 +61,8 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 	int samp;
 
 #ifdef ADD_DEL_SAMPLES
-	int sampMod=0;
-	if (spiRamFifoFill()<(spiRamFifoLen()/2)-2048) sampMod=1;
-	if (spiRamFifoFill()<(spiRamFifoLen()/2)-4096) sampMod=2;
-	if (spiRamFifoFill()>(spiRamFifoLen()/2)+2048) sampMod=-1;
-	if (spiRamFifoFill()>(spiRamFifoLen()/2)+4096) sampMod=-2;
+	static int sampErr=0;
+	sampErr+=(spiRamFifoFill()-(spiRamFifoLen()/2));
 #endif
 
 
@@ -90,21 +93,15 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 
 
 #ifdef ADD_DEL_SAMPLES
-		if (i==0 || i==16) {
-			if (sampMod>0) {
-				sampMod--;
-				//Send out sample twice
-				i2sPushSample(samp);
-				i2sPushSample(samp);
-			} else if (sampMod<0) {
-				sampMod++;
-				//Don't send out sample
-			} else {
-				//No mod needed - just send out one sample
-				i2sPushSample(samp);
-			}
+		//Dependent on the amount of buffer we have too much or too little, we're going to add or remove
+		//samples. This basically does error diffusion on the sample added or removed.
+		if (sampErr>BUFFSAMP) {
+			sampErr-=BUFFSAMP;
+		} else if (sampErr<-BUFFSAMP) {
+			sampErr+=BUFFSAMP;
+			i2sPushSample(samp);
+			i2sPushSample(samp);
 		} else {
-			//Send the sample.
 			i2sPushSample(samp);
 		}
 #else

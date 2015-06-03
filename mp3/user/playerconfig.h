@@ -20,7 +20,6 @@ mp3 output: */
 #define PLAY_PATH "/"
 #define PLAY_PORT 8000
 
-
 /*Playing a real-time MP3 stream has the added complication of clock differences: if the sample
 clock of the server is a bit faster than our sample clock, it will send out mp3 data faster
 than we process it and our buffer will fill up. Conversely, if the server clock is slower, we'll
@@ -28,10 +27,10 @@ eat up samples quicker than the server provides them and we end up with an empty
 To fix this, the mp3 logic can insert/delete some samples to modify the speed of playback.
 If our buffers are filling up too fast (presumably due to a quick sample clock on the other side)
 we will increase our playout speed; if our buffers empty too quickly, we will decrease it a bit.
-This logic will add or delete at most 1/16th of the samples, giving a speedup or slowdown of at
-max 6%.
+Unfortunately, adding or deleting samples isn't very good for the audio quality. If you
+want better quality, feel free to implement a better algorithm.
 WARNING: Don't use this define if you play non-stream files. It will presume the sample clock
-on the server side is waaay too fast and will default to playing back the stream 8% too fast.*/
+on the server side is waaay too fast and will default to playing back the stream too fast.*/
 #define ADD_DEL_SAMPLES
 
 /*While connecting an I2S codec to the I2S port of the ESP is obviously the best way to get nice

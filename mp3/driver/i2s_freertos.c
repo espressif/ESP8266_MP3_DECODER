@@ -9,6 +9,24 @@
  * Modification history:
  *     2015/06/01, v1.0 File created.
 *******************************************************************************/
+
+/*
+How does this work? Basically, to get sound, you need to:
+- Connect an I2S codec to the I2S pins on the ESP.
+- Start up a thread that's going to do the sound output
+- Call I2sInit()
+- Call I2sSetRate() with the sample rate you want (Currently unimplemented:
+  it will always default to 44100Hz)
+- Generate sound and call i2sPushSample() with 32-bit samples.
+The 32bit samples basically are 2 16-bit signed values (the analog values for
+the left and right channel) concatenated as (Rout<<16)+Lout
+
+I2sPushSample will block when you're sending data too quickly, so you can just
+generate and push data as fast as you can and I2sPushSample will regulate the
+speed.
+*/
+
+
 #include "esp_common.h"
 
 #include "freertos/FreeRTOS.h"
@@ -172,9 +190,6 @@ void ICACHE_FLASH_ATTR i2sInit() {
 
 	//tx/rx binaureal
 	CLEAR_PERI_REG_MASK(I2SCONF_CHAN, (I2S_TX_CHAN_MOD<<I2S_TX_CHAN_MOD_S)|(I2S_RX_CHAN_MOD<<I2S_RX_CHAN_MOD_S));
-
-	//?
-	WRITE_PERI_REG(I2SRXEOF_NUM, 0x80);
 
 	//Clear int
 	SET_PERI_REG_MASK(I2SINT_CLR,   I2S_I2S_TX_REMPTY_INT_CLR|I2S_I2S_TX_WFULL_INT_CLR|
