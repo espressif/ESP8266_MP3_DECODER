@@ -19,6 +19,7 @@
 
 #include "spiram_fifo.h"
 #include "spiram.h"
+#include "playerconfig.h"
 
 #define SPIREADSIZE 64
 
@@ -30,17 +31,8 @@ static xSemaphoreHandle semCanWrite;
 static xSemaphoreHandle mux;
 
 
+//Low watermark where we restart the reader thread.
 #define FIFO_LOWMARK (112*1024)
-
-//While a large (tens to hundreds of K) buffer is necessary for Internet streams, on a
-//quiet network and with a direct connection to the stream server, you can get away with
-//a much smaller buffer. Enabling the following switch will disable accesses to the 
-//23LC1024 code and use a much smaller but internal buffer instead. You want to enable
-//this if you don't have a 23LC1024 chip connected to the ESP but still want to try
-//the MP3 decoder. Be warned, if your network isn't 100% quiet and latency-free, this
-//_will_ lead to stutters in the played MP3 stream!
-//#define FAKE_SPI_BUFF
-
 
 #ifdef FAKE_SPI_BUFF
 //Re-define a bunch of things so we use the internal buffer
@@ -134,4 +126,6 @@ int ICACHE_FLASH_ATTR spiRamFifoFree() {
 	return (SPIRAMSIZE-spiRamFifoFill());
 }
 
-
+int ICACHE_FLASH_ATTR spiRamFifoLen() {
+	return SPIRAMSIZE;
+}

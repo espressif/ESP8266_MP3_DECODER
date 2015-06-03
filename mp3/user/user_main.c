@@ -25,50 +25,16 @@
 #include "../mad/synth.h"
 #include "i2s_freertos.h"
 #include "spiram_fifo.h"
+#include "playerconfig.h"
 
 
-//HTTP stream we're trying to play. Should start with 'http://'. The http
-//code is pretty trivial, so it doesn't support authorization, redirects, ports
-//etc.
-#if 0
-const char streamHost[]="pub7.di.fm";
-const char streamPath[]="/di_vocaltrance";
-const int streamPort=80;
-#endif
-#if 0
-const char streamHost[]="icecast.omroep.nl";
-const char streamPath[]="/3fm-sb-mp3";
-const int streamPort=80;
-#endif
-#if 1
-const char streamHost[]="192.168.33.128";
-const char streamPath[]="/";
-const int streamPort=8000;
-#endif
-
-#if 1
-#define AP_NAME "testjmd"
-#define AP_PASS "pannenkoek"
-#endif
-#if 0
-#define AP_NAME "wifi-2"
-#define AP_PASS "thesumof6+6=12"
-#endif
-
+const char streamHost[]=PLAY_SERVER;
+const char streamPath[]=PLAY_PATH;
+const int streamPort=PLAY_PORT;
 
 //Priorities of the reader and the decoder thread. Higher = higher prio.
 #define PRIO_READER 1
 #define PRIO_MAD 2
-
-
-//While connecting an I2S codec to the I2S port of the ESP is obviously the best way to get nice
-//44KHz 16-bit sounds out of the ESP, it is possible to run this code without the codec. For
-//this to work, instead of outputting a 2x16bit PCM sample the DAC can decode, we use the I2S
-//port as a makeshift 5-bit PWM generator. To do this, we map every mp3 sound sample to a
-//value that has an amount of 1's set that's linearily related to the sound samples value and
-//then output that value on the I2S port. The net result is that the average analog value on the 
-//I2S data pin corresponds to the value of the MP3 sample we're trying to output.
-//#define PWM_HACK
 
 #ifdef PWM_HACK
 //Array with 32-bit values which have one bit more set to '1' in every consecutive array index value
@@ -79,7 +45,7 @@ const unsigned int ICACHE_RODATA_ATTR fakePwm[]={ 0x00000010, 0x00000410, 0x0040
 #endif
 
 //The mp3 read buffer size. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
-#define READBUFSZ (2106+64)
+#define READBUFSZ (2106)
 static char readBuf[READBUFSZ]; 
 
 //This routine is called by the NXP modifications of libmad. It passes us (for the mono synth)
@@ -87,6 +53,15 @@ static char readBuf[READBUFSZ];
 void render_sample_block(short *short_sample_buff, int no_samples) {
 	int i;
 	int samp;
+
+#ifdef ADD_DEL_SAMPLES
+	int sampMod=0;
+	if (spiRamFifoFill()<(spiRamFifoLen()/2)-2048) sampMod=1;
+	if (spiRamFifoFill()<(spiRamFifoLen()/2)-4096) sampMod=2;
+	if (spiRamFifoFill()>(spiRamFifoLen()/2)+2048) sampMod=-1;
+	if (spiRamFifoFill()>(spiRamFifoLen()/2)+4096) sampMod=-2;
+#endif
+
 
 	for (i=0; i<no_samples; i++) {
 #ifndef PWM_HACK
@@ -111,13 +86,39 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 		samp=fakePwm[samp>>11];
 		err=(samp&0x7ff);	//Save rounding error.
 #endif
+
+
+
+#ifdef ADD_DEL_SAMPLES
+		if (i==0 || i==16) {
+			if (sampMod>0) {
+				sampMod--;
+				//Send out sample twice
+				i2sPushSample(samp);
+				i2sPushSample(samp);
+			} else if (sampMod<0) {
+				sampMod++;
+				//Don't send out sample
+			} else {
+				//No mod needed - just send out one sample
+				i2sPushSample(samp);
+			}
+		} else {
+			//Send the sample.
+			i2sPushSample(samp);
+		}
+#else
 		//Send the sample.
 		i2sPushSample(samp);
+#endif
 	}
 }
 
 //Called by the NXP modificationss of libmad. Sets the needed output sample rate.
+static oldRate=0;
 void set_dac_sample_rate(int rate) {
+	if (rate==oldRate) return;
+	oldRate=rate;
 //	printf("sr %d\n", rate);
 }
 
@@ -135,7 +136,7 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(struct mad_stream *stream) {
 		if (n==0) {					//Can't take anything?
 			//Wait until there is enough data in the buffer. This only happens when the data feed 
 			//rate is too low, and shouldn't normally be needed!
-			printf("Buf uflow, need %d bytes. Waiting till buffer is filled again...\n", sizeof(readBuf)-rem);
+			printf("Buf uflow, need %d bytes.\n", sizeof(readBuf)-rem);
 			//We both silence the output as well as wait a while by pushing silent samples into the i2s system.
 			//This waits for about 200mS
 			for (n=0; n<441*2; n++) i2sPushSample(0);
@@ -248,6 +249,7 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 	int madRunning=0;
 	char wbuf[64];
 	int n, l, inBuf;
+	int t;
 	int fd;
 	while(1) {
 		fd=openConn(streamHost, streamPath);
@@ -256,14 +258,17 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 			n=read(fd, wbuf, sizeof(wbuf));
 			if (n>0) spiRamFifoWrite(wbuf, n);
 			
-			if ((!madRunning) && (spiRamFifoFree()<=sizeof(wbuf))) {
+			if ((!madRunning) && (spiRamFifoFree()<spiRamFifoLen()/2)) {
 				//Buffer is filled. Start up the MAD task. Yes, the 2100 bytes of stack is a fairly large amount but MAD seems to need it.
-				if (xTaskCreate(tskmad, "tskmad", 2100, NULL, PRIO_MAD, NULL)!=pdPASS) printf("ERROR! Couldn't create MAD task! Out of memory?\n");
+				if (xTaskCreate(tskmad, "tskmad", 2100, NULL, PRIO_MAD, NULL)!=pdPASS) printf("ERROR creating MAD task! Out of memory?\n");
 				madRunning=1;
 			}
-		} while (n>=0);
+			
+			t=(t+1)&15;
+			if (t==0) printf("Buffer fill %d\n", spiRamFifoFill());
+		} while (n>0);
 		close(fd);
-		printf("Read done, connection closed.\n");
+		printf("Connection closed.\n");
 	}
 }
 
@@ -290,7 +295,7 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 	//Initialize I2S and fire up the reader task. The reader task will fire up the MP3 decoder as soon
 	//as it has read enough MP3 data.
 	i2sInit();
-	if (xTaskCreate(tskreader, "tskreader", 230, NULL, PRIO_READER, NULL)!=pdPASS) printf("ERROR! Couldn't create reader task!\n");
+	if (xTaskCreate(tskreader, "tskreader", 230, NULL, PRIO_READER, NULL)!=pdPASS) printf("Error creating reader task!\n");
 	//We're done. Delete this task.
 	vTaskDelete(NULL);
 }
@@ -303,9 +308,9 @@ user_init(void)
 {
 	//Tell hardware to run at 160MHz instead of 80MHz
 	//This actually is not needed in normal situations... the hardware is quick enough to do
-	//MP3 decoding at 80MHz. It, however, helps with receiving data over long and/or unstable
-	//links, so you may want to leave it on.
-#if 1
+	//MP3 decoding at 80MHz. It, however, seems to help with receiving data over long and/or unstable
+	//links, so you may want to turn it on.
+#if 0
 	SET_PERI_REG_MASK(0x3ff00014, BIT(0));
 	os_update_cpu_frequency(160);
 #endif
@@ -316,7 +321,7 @@ user_init(void)
 	//Initialize the SPI RAM chip communications and see if it actually retains some bytes. If it
 	//doesn't, warn user.
 	if (!spiRamFifoInit()) {
-		printf("SPI RAM chip does not seem to work. Is it connected correctly?\n");
+		printf("\n\nSPI RAM chip fail!\n");
 		while(1);
 	}
 	xTaskCreate(tskconnect, "tskconnect", 200, NULL, 3, NULL);
