@@ -21,8 +21,10 @@ make COMPILE=gcc BOOT=none APP=0 SPI_SPEED=40 SPI_MODE=QIO SPI_SIZE=1024
 The resulting binaries will be in the bin/ folder. Please disregard the message
 that pops up at the end of the make process: the addresses it mentions are
 wrong. The correct addresses to load the resulting files are:
+```
 bin/eagle.flash.bin     - 0x00000
 bin/eagle.irom0text.bin - 0xA0000
+```
 
 ## Needed hardware
 
