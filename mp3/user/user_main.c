@@ -33,8 +33,8 @@ const char streamPath[]=PLAY_PATH;
 const int streamPort=PLAY_PORT;
 
 //Priorities of the reader and the decoder thread. Higher = higher prio.
-#define PRIO_READER 2
-#define PRIO_MAD 3
+#define PRIO_READER 11
+#define PRIO_MAD 1
 
 #ifdef PWM_HACK
 //Array with 32-bit values which have one bit more set to '1' in every consecutive array index value
@@ -166,6 +166,11 @@ void ICACHE_FLASH_ATTR tskmad(void *pvParameters) {
 	frame=malloc(sizeof(struct mad_frame));
 	synth=malloc(sizeof(struct mad_synth));
 
+	if (stream==NULL) { printf("MAD: malloc(stream) failed\n"); return; }
+	if (synth==NULL) { printf("MAD: malloc(synth) failed\n"); return; }
+	if (frame==NULL) { printf("MAD: malloc(frame) failed\n"); return; }
+
+
 	printf("MAD: Decoder start.\n");
 	//Initialize mp3 parts
 	mad_stream_init(stream);
@@ -246,13 +251,14 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 	int n, l, inBuf;
 	int t;
 	int fd;
+	int c=0;
 	while(1) {
 		fd=openConn(streamHost, streamPath);
 		printf("Reading into SPI RAM FIFO...\n");
 		do {
 			n=read(fd, wbuf, sizeof(wbuf));
 			if (n>0) spiRamFifoWrite(wbuf, n);
-			
+			c+=n;
 			if ((!madRunning) && (spiRamFifoFree()<spiRamFifoLen()/2)) {
 				//Buffer is filled. Start up the MAD task. Yes, the 2100 bytes of stack is a fairly large amount but MAD seems to need it.
 				if (xTaskCreate(tskmad, "tskmad", 2100, NULL, PRIO_MAD, NULL)!=pdPASS) printf("ERROR creating MAD task! Out of memory?\n");
@@ -260,6 +266,7 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 			}
 			
 			t=(t+1)&15;
+//			if (t==0) printf("Buffer fill %d\n", c);//spiRamFifoFill());
 			if (t==0) printf("Buffer fill %d\n", spiRamFifoFill());
 		} while (n>0);
 		close(fd);

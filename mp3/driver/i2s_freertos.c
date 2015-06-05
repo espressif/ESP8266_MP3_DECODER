@@ -84,7 +84,7 @@ LOCAL void slc_isr(void) {
 		finishedDesc=(struct sdio_queue*)READ_PERI_REG(SLC_RX_EOF_DES_ADDR);
 		if (xQueueIsQueueFullFromISR(dmaQueue)) {
 			//All buffers are empty. This means we have an underflow on our hands.
-//			printf("U");
+			printf("U");
 			//Pop the top off the queue; it's invalid now anyway.
 			xQueueReceiveFromISR(dmaQueue, &dummy, &HPTaskAwoken);
 		}

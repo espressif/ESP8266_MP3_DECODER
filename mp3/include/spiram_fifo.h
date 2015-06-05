@@ -6,5 +6,7 @@ void ICACHE_FLASH_ATTR spiRamFifoRead(char *buff, int len);
 void ICACHE_FLASH_ATTR spiRamFifoWrite(char *buff, int len);
 int ICACHE_FLASH_ATTR spiRamFifoFill();
 int ICACHE_FLASH_ATTR spiRamFifoFree();
+long ICACHE_FLASH_ATTRUB spiRamGetOverrunCt();
+long ICACHE_FLASH_ATTRUB spiRamGetUnderrunCt();
 
 #endif

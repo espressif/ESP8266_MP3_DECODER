@@ -38,7 +38,7 @@ static xSemaphoreHandle mux;
 //Re-define a bunch of things so we use the internal buffer
 #undef SPIRAMSIZE
 //allocate enough for about one mp3 frame
-#define SPIRAMSIZE 2076 
+#define SPIRAMSIZE 1850 
 static char fakespiram[SPIRAMSIZE];
 #define spiRamInit() while(0)
 #define spiRamTest() 1

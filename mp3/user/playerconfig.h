@@ -4,18 +4,18 @@
 /*
 Define the access point name and its password here.
 */
-//#define AP_NAME "testjmd"
-//#define AP_PASS "pannenkoek"
+#define AP_NAME "testjmd"
+#define AP_PASS "pannenkoek"
 
-#define AP_NAME "TP-LINK_5043A0"
-#define AP_PASS "10001000"
+//#define AP_NAME "TP-LINK_5043A0"
+//#define AP_PASS "10001000"
 
 /* Define stream URL here. For example, the URL to the MP3 stream of a certain Dutch radio station
 is http://icecast.omroep.nl/3fm-sb-mp3 . This translates of a server name of "icecast.omroep.nl"
 and a path of "/3fm-sb-mp3". The port usually is 80 (the standard HTTP port) */
-#define PLAY_SERVER "icecast.omroep.nl"
-#define PLAY_PATH "/3fm-sb-mp3"
-#define PLAY_PORT 80
+//#define PLAY_SERVER "icecast.omroep.nl"
+//#define PLAY_PATH "/3fm-sb-mp3"
+//#define PLAY_PORT 80
 
 /*
 Here's a DI.fm stream
