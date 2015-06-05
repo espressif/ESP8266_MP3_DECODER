@@ -89,6 +89,14 @@ data pin (GPIO2/TX1) of the ESP module. Connecting a speaker
 directly may also work but is not advised: the GPIOs of the ESP
 are not meant to drive inductive loads directly.
 
+## About the FreeRTOS SDK used
+
+The MP3 example is a very memory-sensitive piece of code: the MP3 decoder
+uses almost all the RAM and the needed buffers for input and output
+buffering take up the rest: when using no external SPI RAM, only a few 
+bytes of memory are left. The SDK libs that come with this example are
+libraries that have been optimized for memory usage and are known to work.
+
 ## Technical details on this implementation
 
 The biggest part of this code consists of a modified version of libmad,
