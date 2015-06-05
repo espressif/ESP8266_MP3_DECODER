@@ -33,7 +33,7 @@ const char streamPath[]=PLAY_PATH;
 const int streamPort=PLAY_PORT;
 
 //Priorities of the reader and the decoder thread. Higher = higher prio.
-#define PRIO_READER 2
+#define PRIO_READER 11
 #define PRIO_MAD 1
 
 
@@ -379,7 +379,7 @@ void ICACHE_FLASH_ATTR user_init(void) {
 		printf("\n\nSPI RAM chip fail!\n");
 		while(1);
 	}
-	printf("Hardware initialized. Waiting for network.\n");
+	printf("\n\nHardware initialized. Waiting for network.\n");
 	xTaskCreate(tskconnect, "tskconnect", 200, NULL, 3, NULL);
 }
 
