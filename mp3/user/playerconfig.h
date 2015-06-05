@@ -51,7 +51,7 @@ To fix this, the mp3 logic can insert/delete some samples to modify the speed of
 If our buffers are filling up too fast (presumably due to a quick sample clock on the other side)
 we will increase our playout speed; if our buffers empty too quickly, we will decrease it a bit.
 Unfortunately, adding or deleting samples isn't very good for the audio quality. If you
-want better quality, feel free to implement a better algorithm.
+want better quality, turn this off and/or feel free to implement a better algorithm.
 WARNING: Don't use this define if you play non-stream files. It will presume the sample clock
 on the server side is waaay too fast and will default to playing back the stream too fast.*/
 #define ADD_DEL_SAMPLES

@@ -1,4 +1,4 @@
-I2S MP3 webradio streaming example
+# I2S MP3 webradio streaming example
 
 This is an example of how to use the I2S module inside the ESP8266 to output
 sound. In this case, it is used to output decoded MP3 data (actually, more 
@@ -8,7 +8,7 @@ the server sends out, decode it and output it over the I2S bus to a DAC. The
 MP3 decoder has been tested for bitrates up to 320KBit/s and sample
 rates of up to 48KHz.
 
-* Configuration options, building
+## Configuration options, building
 
 All high-level options can be configured in mp3/user/playerconfig.h. Edit 
 that file to set up your access point and a webradio stream or other source of
@@ -24,7 +24,7 @@ wrong. The correct addresses to load the resulting files are:
 bin/eagle.flash.bin     - 0x00000
 bin/eagle.irom0text.bin - 0xA0000
 
-* Needed hardware
+## Needed hardware
 
 If you want to have nice, high-quality buffered audio output, you will need to
 connect two ICs to your ESP: a 128KByte SPI RAM and an I2S codec. Both ICs are 
@@ -36,7 +36,7 @@ MP3 data. This guards against latency isuues that are present in all but the
 most quiet networks and closest connections. It is connected to the same
 bus as the SPI flash:
 
-ESP pin   - 23LC1024 pin
+```ESP pin   - 23LC1024 pin
 ------------------------
 GPIO0     - /CS (1)
 SD_D0     - SO/SI1 (2)
@@ -48,7 +48,7 @@ SD_D2     - /HOLD/SIO3 (7) *
 3.3V      - VCC (8)
 
 *=optional, may also be connected to Vcc on 23LC1024 side.
-
+```
 One way to make these connections is to take the SSOIC version of the 23LC1024,
 bend up pin 1 (/CS) and piggyback it on the SPI flash chip that already is on the
 ESP module. Solder all the pins to the same pins on the SPI flash chip except
@@ -58,15 +58,15 @@ For the I2S codec, pick whatever chip or board works for you; this code was
 written using a ES9023 chip, but other I2S boards and chips will probably
 work as well. The connections to make here are:
 
-ESP pin   - I2S signal
+```ESP pin   - I2S signal
 ----------------------
 GPIO2/TX1   - DATA
 GPIO13      - LRCK
-GPIO15      - BCLK
+GPIO15      - BCLK```
 
 Also, don't forget to hook up any supply voltages and grounds needed.
 
-* Running without the SPI RAM part
+## Running without the SPI RAM part
 
 To not use the SPI RAM chip, please edit mp3/user/playerconfig.h and
 define FAKE_SPI_BUFF. This will use a much smaller buffer in the main
@@ -76,7 +76,7 @@ with live streaming stations will not work. Expect the sound to cut
 out a fair amount of times unless you have a quiet network and connect
 to a server very close to you.
 
-* Running without the I2S DAC
+## Running without the I2S DAC
 
 To not use an I2S DAC chip, please edit mp3/user/playerconfig.h and
 define PWM_HACK. This uses some code to abuse the I2S module as a
@@ -85,7 +85,7 @@ data pin (GPIO2/TX1) of the ESP module. Connecting a speaker
 directly may also work but is not advised: the GPIOs of the ESP
 are not meant to drive inductive loads directly.
 
-* Technical details on this implementation
+## Technical details on this implementation
 
 The biggest part of this code consists of a modified version of libmad,
 a fixed-point mp3 decoder. The specific version we use here has already
@@ -112,6 +112,4 @@ happens, allowing the ESP8266 to attend to other tasks.
 While the ESP8266 is able to run at 160MHz, we're leaving it at its
 default speed of 80MHz here: it seems that at that speed the ESP8266
 is perfectly capable of decoding even 320KBit MP3 data.
-
-
 
