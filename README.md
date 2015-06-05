@@ -36,7 +36,8 @@ MP3 data. This guards against latency isuues that are present in all but the
 most quiet networks and closest connections. It is connected to the same
 bus as the SPI flash:
 
-```ESP pin   - 23LC1024 pin
+```
+ESP pin   - 23LC1024 pin
 \------------------------
 GPIO0     - /CS (1)
 SD_D0     - SO/SI1 (2)
@@ -59,7 +60,8 @@ For the I2S codec, pick whatever chip or board works for you; this code was
 written using a ES9023 chip, but other I2S boards and chips will probably
 work as well. The connections to make here are:
 
-```ESP pin   - I2S signal
+```
+ESP pin   - I2S signal
 \----------------------
 GPIO2/TX1   - DATA
 GPIO13      - LRCK
