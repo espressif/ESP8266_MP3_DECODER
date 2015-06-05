@@ -37,7 +37,7 @@ most quiet networks and closest connections. It is connected to the same
 bus as the SPI flash:
 
 ```ESP pin   - 23LC1024 pin
-------------------------
+\------------------------
 GPIO0     - /CS (1)
 SD_D0     - SO/SI1 (2)
 SD_D3     - SIO2 (3) *
@@ -49,6 +49,7 @@ SD_D2     - /HOLD/SIO3 (7) *
 
 *=optional, may also be connected to Vcc on 23LC1024 side.
 ```
+
 One way to make these connections is to take the SSOIC version of the 23LC1024,
 bend up pin 1 (/CS) and piggyback it on the SPI flash chip that already is on the
 ESP module. Solder all the pins to the same pins on the SPI flash chip except
@@ -59,10 +60,11 @@ written using a ES9023 chip, but other I2S boards and chips will probably
 work as well. The connections to make here are:
 
 ```ESP pin   - I2S signal
-----------------------
+\----------------------
 GPIO2/TX1   - DATA
 GPIO13      - LRCK
-GPIO15      - BCLK```
+GPIO15      - BCLK
+```
 
 Also, don't forget to hook up any supply voltages and grounds needed.
 
