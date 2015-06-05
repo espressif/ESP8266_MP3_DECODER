@@ -41,6 +41,8 @@ const int streamPort=PLAY_PORT;
 #define READBUFSZ (2106)
 static char readBuf[READBUFSZ]; 
 
+static long bufUnderrunCt;
+
 
 //Reformat the 16-bit mono sample to a format we can send to I2S.
 static int sampToI2s(short s) {
@@ -82,23 +84,36 @@ static int sampToI2sPwm(short s) {
 //8.24 fixed-point number
 int recalcAddDelSamp(int oldVal) {
 	int ret;
-	long prevOvf=0, prevUdr=0;
-	if (spiRamFifoLen()<10000) {
-		//The FIFO is very small. We can't do calculations on how much it's filled. Base our playback
-		//speed adjustment on the amount of overflows/underruns we had.
-		int ovf=spiRamGetOverrunCt()-prevOvf;
+	long prevUdr=0;
+	static int cnt;
+	int i;
+	static int minFifoFill=0;
+
+	i=spiRamFifoFill();
+	if (i<minFifoFill) minFifoFill=i;
+
+	//Do the rest of the calculations plusminus every 100mS (assuming a sample rate of 44KHz)
+	cnt++;
+	if (cnt<1500) return;
+	cnt=0;
+
+	if (spiRamFifoLen()<10*1024) {
+		//The FIFO is very small. We can't do calculations on how much it's filled on average, so another
+		//algorithm is called for.
+		int tgt=1600; //we want an average of this amount of bytes as the average minimum buffer fill
+		//Calculate underruns this cycle
 		int udr=spiRamGetUnderrunCt()-prevUdr;
-		//If we have more overflows than underruns, slow down playback. If we have more underruns,
-		//speed it up a bit.
-		ret=oldVal+((udr-ovf)*ADD_DEL_BUFFPERSAMP_NOSPIRAM);
-		prevOvf+=ovf;
+		//If we have underruns, the minimum buffer fill has been lower than 0.
+		if (udr!=0) minFifoFill=-1;
+		//If we're below our target decrease playback speed, and vice-versa.
+		ret=oldVal+((minFifoFill-tgt)*ADD_DEL_BUFFPERSAMP_NOSPIRAM);
 		prevUdr+=udr;
+		minFifoFill=9999;
 	} else {
 		//We have a larger FIFO; we can adjust according to the FIFO fill rate.
 		int tgt=spiRamFifoLen()/2;
 		ret=(spiRamFifoFill()-tgt)*ADD_DEL_BUFFPERSAMP;
 	}
-	printf("RetAddDel: %d\n", ret);
 	return ret;
 }
 
@@ -112,17 +127,11 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 	static int sampAddDel=0;
 	//Remainder of sampAddDel cumulatives
 	static int sampErr=0;
-	//Sample count, for recalcAddDelSamp
-	static int cnt=0;
 	int i;
 	int samp;
 
 #ifdef ADD_DEL_SAMPLES
-	cnt++;
-	if (cnt==1500) { //recalculate sampAddDel plusminus every 100mS (assuming a sample rate of 44KHz)
-		cnt=0;
-		sampAddDel=recalcAddDelSamp(sampAddDel);
-	}
+	sampAddDel=recalcAddDelSamp(sampAddDel);
 #endif
 
 
@@ -173,7 +182,8 @@ static enum  mad_flow ICACHE_FLASH_ATTR input(struct mad_stream *stream) {
 		if (n==0) {					//Can't take anything?
 			//Wait until there is enough data in the buffer. This only happens when the data feed 
 			//rate is too low, and shouldn't normally be needed!
-			printf("Buf uflow, need %d bytes.\n", sizeof(readBuf)-rem);
+//			printf("Buf uflow, need %d bytes.\n", sizeof(readBuf)-rem);
+			bufUnderrunCt++;
 			//We both silence the output as well as wait a while by pushing silent samples into the i2s system.
 			//This waits for about 200mS
 			for (n=0; n<441*2; n++) i2sPushSample(0);
@@ -213,6 +223,10 @@ void ICACHE_FLASH_ATTR tskmad(void *pvParameters) {
 	if (synth==NULL) { printf("MAD: malloc(synth) failed\n"); return; }
 	if (frame==NULL) { printf("MAD: malloc(frame) failed\n"); return; }
 
+	//Initialize I2S
+	i2sInit();
+
+	bufUnderrunCt=0;
 
 	printf("MAD: Decoder start.\n");
 	//Initialize mp3 parts
@@ -308,9 +322,8 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 				madRunning=1;
 			}
 			
-			t=(t+1)&63;
-//			if (t==0) printf("Buffer fill %d\n", c);//spiRamFifoFill());
-			if (t==0) printf("Buffer fill %d\n", spiRamFifoFill());
+			t=(t+1)&255;
+			if (t==0) printf("Buffer fill %d, DMA underrun ct %d, buff underrun ct %d\n", spiRamFifoFill(), (int)i2sGetUnderrunCnt(), bufUnderrunCt);
 		} while (n>0);
 		close(fd);
 		printf("Connection closed.\n");
@@ -337,9 +350,8 @@ void ICACHE_FLASH_ATTR tskconnect(void *pvParameters) {
 	wifi_station_connect();
 	free(config);
 
-	//Initialize I2S and fire up the reader task. The reader task will fire up the MP3 decoder as soon
+	//Fire up the reader task. The reader task will fire up the MP3 decoder as soon
 	//as it has read enough MP3 data.
-	i2sInit();
 	if (xTaskCreate(tskreader, "tskreader", 230, NULL, PRIO_READER, NULL)!=pdPASS) printf("Error creating reader task!\n");
 	//We're done. Delete this task.
 	vTaskDelete(NULL);
@@ -367,6 +379,7 @@ void ICACHE_FLASH_ATTR user_init(void) {
 		printf("\n\nSPI RAM chip fail!\n");
 		while(1);
 	}
+	printf("Hardware initialized. Waiting for network.\n");
 	xTaskCreate(tskconnect, "tskconnect", 200, NULL, 3, NULL);
 }
 

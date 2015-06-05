@@ -64,7 +64,8 @@ static unsigned int *i2sBuf[I2SDMABUFCNT];
 static struct sdio_queue i2sBufDesc[I2SDMABUFCNT];
 //Queue which contains empty DMA buffers
 static xQueueHandle dmaQueue;
-
+//DMA underrun counter
+static long underrunCnt;
 
 //This routine is called as soon as the DMA routine has something to tell us. All we
 //handle here is the RX_EOF_INT status, which indicate the DMA has sent a buffer whose
@@ -84,7 +85,7 @@ LOCAL void slc_isr(void) {
 		finishedDesc=(struct sdio_queue*)READ_PERI_REG(SLC_RX_EOF_DES_ADDR);
 		if (xQueueIsQueueFullFromISR(dmaQueue)) {
 			//All buffers are empty. This means we have an underflow on our hands.
-			printf("U");
+			underrunCnt++;
 			//Pop the top off the queue; it's invalid now anyway.
 			xQueueReceiveFromISR(dmaQueue, &dummy, &HPTaskAwoken);
 		}
@@ -99,6 +100,8 @@ LOCAL void slc_isr(void) {
 //Initialize I2S subsystem for DMA circular buffer use
 void ICACHE_FLASH_ATTR i2sInit() {
 	int x, y;
+	
+	underrunCnt=0;
 	
 	//First, take care of the DMA buffers.
 	for (y=0; y<I2SDMABUFCNT; y++) {
@@ -273,4 +276,9 @@ void i2sPushSample(unsigned int sample) {
 		currDMABuffPos=0;
 	}
 	currDMABuff[currDMABuffPos++]=sample;
+}
+
+
+long ICACHE_FLASH_ATTR i2sGetUnderrunCnt() {
+	return underrunCnt;
 }
