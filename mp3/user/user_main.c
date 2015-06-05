@@ -33,77 +33,120 @@ const char streamPath[]=PLAY_PATH;
 const int streamPort=PLAY_PORT;
 
 //Priorities of the reader and the decoder thread. Higher = higher prio.
-#define PRIO_READER 11
+#define PRIO_READER 2
 #define PRIO_MAD 1
 
-#ifdef PWM_HACK
-//Array with 32-bit values which have one bit more set to '1' in every consecutive array index value
-const unsigned int ICACHE_RODATA_ATTR fakePwm[]={ 0x00000010, 0x00000410, 0x00400410, 0x00400C10, 0x00500C10, 0x00D00C10, 0x20D00C10, 0x21D00C10, 0x21D80C10, 
-	0xA1D80C10, 0xA1D80D10, 0xA1D80D30, 0xA1DC0D30, 0xA1DC8D30, 0xB1DC8D30, 0xB9DC8D30, 0xB9FC8D30, 0xBDFC8D30, 0xBDFE8D30, 
-	0xBDFE8D32, 0xBDFE8D33, 0xBDFECD33, 0xFDFECD33, 0xFDFECD73, 0xFDFEDD73, 0xFFFEDD73, 0xFFFEDD7B, 0xFFFEFD7B, 0xFFFFFD7B, 
-	0xFFFFFDFB, 0xFFFFFFFB, 0xFFFFFFFF};
-#endif
 
 //The mp3 read buffer size. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
 #define READBUFSZ (2106)
 static char readBuf[READBUFSZ]; 
 
+
+//Reformat the 16-bit mono sample to a format we can send to I2S.
+static int sampToI2s(short s) {
+	//We can send a 32-bit sample to the I2S subsystem and the DAC will neatly split it up in 2
+	//16-bit analog values, one for left and one for right.
+
+	//Duplicate 16-bit sample to both the L and R channel
+	int samp=s;
+	samp=(samp)&0xffff;
+	samp=(samp<<16)|samp;
+	return samp;
+}
+
+//Array with 32-bit values which have one bit more set to '1' in every consecutive array index value
+const unsigned int ICACHE_RODATA_ATTR fakePwm[]={ 0x00000010, 0x00000410, 0x00400410, 0x00400C10, 0x00500C10, 0x00D00C10, 0x20D00C10, 0x21D00C10, 0x21D80C10, 
+	0xA1D80C10, 0xA1D80D10, 0xA1D80D30, 0xA1DC0D30, 0xA1DC8D30, 0xB1DC8D30, 0xB9DC8D30, 0xB9FC8D30, 0xBDFC8D30, 0xBDFE8D30, 
+	0xBDFE8D32, 0xBDFE8D33, 0xBDFECD33, 0xFDFECD33, 0xFDFECD73, 0xFDFEDD73, 0xFFFEDD73, 0xFFFEDD7B, 0xFFFEFD7B, 0xFFFFFD7B, 
+	0xFFFFFDFB, 0xFFFFFFFB, 0xFFFFFFFF};
+
+static int sampToI2sPwm(short s) {
+	//Okay, when this is enabled it means a speaker is connected *directly* to the data output. Instead of
+	//having a nice PCM signal, we fake a PWM signal here.
+	static int err=0;
+	int samp=s;
+	samp=(samp+32768);	//to unsigned
+	samp-=err;			//Add the error we made when rounding the previous sample (error diffusion)
+	//clip value
+	if (samp>65535) samp=65535;
+	if (samp<0) samp=0;
+	//send pwm value for sample value
+	samp=fakePwm[samp>>11];
+	err=(samp&0x7ff);	//Save rounding error.
+	return samp;
+}
+
+
+//Calculate the number of samples that we add or delete. Added samples means a slightly lower
+//playback rate, deleted samples means we increase playout speed a bit. This returns an
+//8.24 fixed-point number
+int recalcAddDelSamp(int oldVal) {
+	int ret;
+	long prevOvf=0, prevUdr=0;
+	if (spiRamFifoLen()<10000) {
+		//The FIFO is very small. We can't do calculations on how much it's filled. Base our playback
+		//speed adjustment on the amount of overflows/underruns we had.
+		int ovf=spiRamGetOverrunCt()-prevOvf;
+		int udr=spiRamGetUnderrunCt()-prevUdr;
+		//If we have more overflows than underruns, slow down playback. If we have more underruns,
+		//speed it up a bit.
+		ret=oldVal+((udr-ovf)*ADD_DEL_BUFFPERSAMP_NOSPIRAM);
+		prevOvf+=ovf;
+		prevUdr+=udr;
+	} else {
+		//We have a larger FIFO; we can adjust according to the FIFO fill rate.
+		int tgt=spiRamFifoLen()/2;
+		ret=(spiRamFifoFill()-tgt)*ADD_DEL_BUFFPERSAMP;
+	}
+	printf("RetAddDel: %d\n", ret);
+	return ret;
+}
+
+
+
 //This routine is called by the NXP modifications of libmad. It passes us (for the mono synth)
 //32 16-bit samples.
 void render_sample_block(short *short_sample_buff, int no_samples) {
+	//Signed 16.16 fixed point number: the amount of samples we need to add or delete
+	//in every 32-sample 
+	static int sampAddDel=0;
+	//Remainder of sampAddDel cumulatives
+	static int sampErr=0;
+	//Sample count, for recalcAddDelSamp
+	static int cnt=0;
 	int i;
 	int samp;
 
 #ifdef ADD_DEL_SAMPLES
-	static int sampErr=0;
-	//Target FIFO full-ness. This is the level we want the FIFO filled at.
-	int tgtFill=(spiRamFifoLen()*3)/4;
-	sampErr+=(spiRamFifoFill()-tgtFill);
+	cnt++;
+	if (cnt==1500) { //recalculate sampAddDel plusminus every 100mS (assuming a sample rate of 44KHz)
+		cnt=0;
+		sampAddDel=recalcAddDelSamp(sampAddDel);
+	}
 #endif
 
 
+	sampErr+=sampAddDel;
 	for (i=0; i<no_samples; i++) {
-#ifndef PWM_HACK
-		//We can send a 32-bit sample to the I2S subsystem and the DAC will neatly split it up in 2
-		//16-bit analog values, one for left and one for right.
-
-		//Duplicate 16-bit sample to both the L and R channel
-		samp=(short_sample_buff[i]);
-		samp=(samp)&0xffff;
-		samp=(samp<<16)|samp;
+#ifdef PWM_HACK
+		samp=sampToI2sPwm(short_sample_buff[i]);
 #else
-		//Okay, when this is enabled it means a speaker is connected *directly* to the data output. Instead of
-		//having a nice PCM signal, we fake a PWM signal here.
-		static int err=0;
-		samp=short_sample_buff[i];
-		samp=(samp+32768);	//to unsigned
-		samp-=err;			//Add the error we made when rounding the previous sample (error diffusion)
-		//clip value
-		if (samp>65535) samp=65535;
-		if (samp<0) samp=0;
-		//send pwm value for sample value
-		samp=fakePwm[samp>>11];
-		err=(samp&0x7ff);	//Save rounding error.
+		samp=sampToI2s(short_sample_buff[i]);
 #endif
-
-
-
-#ifdef ADD_DEL_SAMPLES
 		//Dependent on the amount of buffer we have too much or too little, we're going to add or remove
 		//samples. This basically does error diffusion on the sample added or removed.
-		if (sampErr>ADD_DEL_BUFFPERSAMP) {
-			sampErr-=ADD_DEL_BUFFPERSAMP;
-		} else if (sampErr<-ADD_DEL_BUFFPERSAMP) {
-			sampErr+=ADD_DEL_BUFFPERSAMP;
+		if (sampErr>(1<<24)) {
+			sampErr-=(1<<24);
+			//...and don't output an i2s sample
+		} else if (sampErr<-(1<<24)) {
+			sampErr+=(1<<24);
+			//..and output 2 samples instead of one.
 			i2sPushSample(samp);
 			i2sPushSample(samp);
 		} else {
+			//Just output the sample.
 			i2sPushSample(samp);
 		}
-#else
-		//Send the sample.
-		i2sPushSample(samp);
-#endif
 	}
 }
 
@@ -265,7 +308,7 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 				madRunning=1;
 			}
 			
-			t=(t+1)&15;
+			t=(t+1)&63;
 //			if (t==0) printf("Buffer fill %d\n", c);//spiRamFifoFill());
 			if (t==0) printf("Buffer fill %d\n", spiRamFifoFill());
 		} while (n>0);

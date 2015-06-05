@@ -27,6 +27,7 @@
 
 //Initialize the SPI port to talk to the chip.
 void ICACHE_FLASH_ATTR spiRamInit() {
+	char dummy[64];
 	 //hspi overlap to spi, two spi masters on cspi
 	//#define HOST_INF_SEL 0x3ff00028 
 	SET_PERI_REG_MASK(0x3ff00028, BIT(7));
@@ -50,6 +51,9 @@ void ICACHE_FLASH_ATTR spiRamInit() {
 					(((2)&SPI_CLKCNT_N)<<SPI_CLKCNT_N_S)|
 					(((2)&SPI_CLKCNT_H)<<SPI_CLKCNT_H_S)|
 					(((1)&SPI_CLKCNT_L)<<SPI_CLKCNT_L_S));
+
+	//Dummy read to clear any weird state the SPI ram chip may be in
+	spiRamRead(0x0, dummy, 64);
 
 }
 

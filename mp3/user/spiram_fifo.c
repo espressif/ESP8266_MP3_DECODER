@@ -29,7 +29,7 @@ static int fifoFill;
 static xSemaphoreHandle semCanRead;
 static xSemaphoreHandle semCanWrite;
 static xSemaphoreHandle mux;
-
+static long fifoOvfCnt, fifoUdrCnt;
 
 //Low watermark where we restart the reader thread.
 #define FIFO_LOWMARK (112*1024)
@@ -51,6 +51,8 @@ int ICACHE_FLASH_ATTR spiRamFifoInit() {
 	fifoRpos=0;
 	fifoWpos=0;
 	fifoFill=0;
+	fifoOvfCnt=0;
+	fifoUdrCnt=0;
 	vSemaphoreCreateBinary(semCanRead);
 	vSemaphoreCreateBinary(semCanWrite);
 	mux=xSemaphoreCreateMutex();
@@ -69,6 +71,7 @@ void ICACHE_FLASH_ATTR spiRamFifoRead(char *buff, int len) {
 		if (fifoFill<n) {
 //			printf("FIFO empty.\n");
 			//Drat, not enough data in FIFO. Wait till there's some written and try again.
+			fifoUdrCnt++;
 			xSemaphoreGive(mux);
 			if (fifoFill<FIFO_LOWMARK) xSemaphoreTake(semCanRead, portMAX_DELAY);
 		} else {
@@ -97,6 +100,7 @@ void ICACHE_FLASH_ATTR spiRamFifoWrite(char *buff, int len) {
 		if ((SPIRAMSIZE-fifoFill)<n) {
 //			printf("FIFO full.\n");
 			//Drat, not enough free room in FIFO. Wait till there's some read and try again.
+			fifoOvfCnt++;
 			xSemaphoreGive(mux);
 			xSemaphoreTake(semCanWrite, portMAX_DELAY);
 		} else {
@@ -129,3 +133,20 @@ int ICACHE_FLASH_ATTR spiRamFifoFree() {
 int ICACHE_FLASH_ATTR spiRamFifoLen() {
 	return SPIRAMSIZE;
 }
+
+long ICACHE_FLASH_ATTR spiRamGetOverrunCt() {
+	long ret;
+	xSemaphoreTake(mux, portMAX_DELAY);
+	ret=fifoOvfCnt;
+	xSemaphoreGive(mux);
+	return ret;
+}
+
+long ICACHE_FLASH_ATTR spiRamGetUnderrunCt() {
+	long ret;
+	xSemaphoreTake(mux, portMAX_DELAY);
+	ret=fifoUdrCnt;
+	xSemaphoreGive(mux);
+	return ret;
+}
+
