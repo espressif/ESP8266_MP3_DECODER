@@ -91,6 +91,18 @@ data pin (GPIO2/TX1) of the ESP module. Connecting a speaker
 directly may also work but is not advised: the GPIOs of the ESP
 are not meant to drive inductive loads directly.
 
+## Sound quality
+
+In the default configuration, this code will output 16-bit mono audio.
+Stereo audio is possible but hasn't been implemented yet: a stereo
+synth is available but has not been modified for ESP8266 use yet. In
+PWM mode, the output is a dithered 5-bit PWM output. Furthermore, the
+ESP can decode a pretty wide range of bitrates: 96KBit to 320KBit
+MP3s have been tested and seem to work fine. Sound quality in general
+is not bad, but the scaling and clock adaption algorithms can use
+some improvement if the decoder needs to output real high-quality
+sound: Patches are welcome.
+
 ## About the FreeRTOS SDK used
 
 The MP3 example is a very memory-sensitive piece of code: the MP3 decoder
