@@ -10,7 +10,7 @@ Define the access point name and its password here.
 /* Define stream URL here. For example, the URL to the MP3 stream of a certain Dutch radio station
 is http://icecast.omroep.nl/3fm-sb-mp3 . This translates of a server name of "icecast.omroep.nl"
 and a path of "/3fm-sb-mp3". The port usually is 80 (the standard HTTP port) */
-#if 1
+#if 0
 #define PLAY_SERVER "icecast.omroep.nl"
 #define PLAY_PATH "/3fm-sb-mp3"
 #define PLAY_PORT 80
@@ -26,7 +26,7 @@ Here's a DI.fm stream
 
 /* You can use something like this to connect to a local mpd server which has a configured 
 mp3 output: */
-#if 0
+#if 1
 #define PLAY_SERVER "192.168.33.128"
 #define PLAY_PATH "/"
 #define PLAY_PORT 8000
@@ -61,7 +61,7 @@ Size of the cumulative buffer offset before we are going to add or remove a samp
 The higher this number, the more aggressive we're adjusting the sample rate. Higher numbers give
 better resistance to buffer over/underflows due to clock differences, but also can result in
 the music sounding higher/lower due to network issues.*/
-#define ADD_DEL_BUFFPERSAMP (1000)
+#define ADD_DEL_BUFFPERSAMP (3000)
 
 /*ADD_DEL_SAMPLES parameter:
 Same as ADD_DEL_BUFFPERSAMP but for systems without a big SPI RAM chip to buffer mp3 data in.*/
@@ -75,7 +75,7 @@ value that has an amount of 1's set that's linearily related to the sound sample
 then output that value on the I2S port. The net result is that the average analog value on the 
 I2S data pin corresponds to the value of the MP3 sample we're trying to output. Needless to
 say, a hacked 5-bit PWM output is going to sound a lot worse than a real I2S codec.*/
-//#define PWM_HACK
+#define PWM_HACK
 
 /*While a large (tens to hundreds of K) buffer is necessary for Internet streams, on a
 quiet network and with a direct connection to the stream server, you can get away with
