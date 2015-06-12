@@ -61,7 +61,7 @@ Size of the cumulative buffer offset before we are going to add or remove a samp
 The higher this number, the more aggressive we're adjusting the sample rate. Higher numbers give
 better resistance to buffer over/underflows due to clock differences, but also can result in
 the music sounding higher/lower due to network issues.*/
-#define ADD_DEL_BUFFPERSAMP (3000)
+#define ADD_DEL_BUFFPERSAMP (1000)
 
 /*ADD_DEL_SAMPLES parameter:
 Same as ADD_DEL_BUFFPERSAMP but for systems without a big SPI RAM chip to buffer mp3 data in.*/

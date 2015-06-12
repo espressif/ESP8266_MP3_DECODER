@@ -94,7 +94,7 @@ int recalcAddDelSamp(int oldVal) {
 
 	//Do the rest of the calculations plusminus every 100mS (assuming a sample rate of 44KHz)
 	cnt++;
-	if (cnt<1500) return;
+	if (cnt<1500) return oldVal;
 	cnt=0;
 
 	if (spiRamFifoLen()<10*1024) {
@@ -161,7 +161,7 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 
 //Called by the NXP modificationss of libmad. Sets the needed output sample rate.
 static oldRate=0;
-void set_dac_sample_rate(int rate) {
+void ICACHE_FLASH_ATTR set_dac_sample_rate(int rate) {
 	if (rate==oldRate) return;
 	oldRate=rate;
 	printf("Rate %d\n", rate);
