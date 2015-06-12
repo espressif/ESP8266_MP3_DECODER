@@ -10,7 +10,7 @@ Define the access point name and its password here.
 /* Define stream URL here. For example, the URL to the MP3 stream of a certain Dutch radio station
 is http://icecast.omroep.nl/3fm-sb-mp3 . This translates of a server name of "icecast.omroep.nl"
 and a path of "/3fm-sb-mp3". The port usually is 80 (the standard HTTP port) */
-#if 0
+#if 1
 #define PLAY_SERVER "icecast.omroep.nl"
 #define PLAY_PATH "/3fm-sb-mp3"
 #define PLAY_PORT 80
@@ -26,7 +26,7 @@ Here's a DI.fm stream
 
 /* You can use something like this to connect to a local mpd server which has a configured 
 mp3 output: */
-#if 1
+#if 0
 #define PLAY_SERVER "192.168.33.128"
 #define PLAY_PATH "/"
 #define PLAY_PORT 8000
@@ -75,7 +75,17 @@ value that has an amount of 1's set that's linearily related to the sound sample
 then output that value on the I2S port. The net result is that the average analog value on the 
 I2S data pin corresponds to the value of the MP3 sample we're trying to output. Needless to
 say, a hacked 5-bit PWM output is going to sound a lot worse than a real I2S codec.*/
-#define PWM_HACK
+//#define PWM_HACK
+
+/*
+As an alternative to the PWM hack, you can also use a 2nd order delta sigma converter to
+output directly into an amp/speaker. This is a bit more noisy than the PWM code, but the
+noise is concentrated in the higher frequencies: you can easily filter it using a simple 
+R/C lowpass filter, eg 100 ohm in series with the output, 100NF from there to ground.
+This will clock the ESP at 160MHz; the delta-sigma process eats just a bit too much
+CPU power to run stable at 80MHz without causing DMA dropouts.
+*/
+//#define DELTA_SIGMA_HACK
 
 /*While a large (tens to hundreds of K) buffer is necessary for Internet streams, on a
 quiet network and with a direct connection to the stream server, you can get away with

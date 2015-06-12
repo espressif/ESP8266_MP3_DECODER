@@ -78,16 +78,21 @@ static int sampToI2sPwm(short s) {
 	return samp;
 }
 
+//2nd order delta-sigma DAC
+//See http://www.beis.de/Elektronik/DeltaSigma/DeltaSigma.html for a nice explanation
 static int sampToI2sDeltaSigma(short s) {
 	int x;
 	int val=0;
 	int w;
-	static int outReg;
+	static int i1v=0, i2v=0;
+	static int outReg=0;
 	for (x=0; x<32; x++) {
 		w=s;
-		if (outReg>0) w-=32767; else w+=32767; //DDC/difference
-		w+=outReg; //adder
-		outReg=w; //register;
+		if (outReg>0) w-=32767; else w+=32767; //Difference 1
+		w+=i1v; i1v=w; //Integrator 1
+		if (outReg>0) w-=32767; else w+=32767; //Difference 2
+		w+=i2v; i2v=w; //Integrator 2
+		outReg=w;		//register
 		if (w>0) val|=1; //comparator
 		val<<=1; //next bit
 	}
@@ -154,7 +159,9 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 
 	sampErr+=sampAddDel;
 	for (i=0; i<no_samples; i++) {
-#ifdef PWM_HACK
+#if defined(PWM_HACK)
+		samp=sampToI2sPwm(short_sample_buff[i]);
+#elif defined(DELTA_SIGMA_HACK)
 		samp=sampToI2sDeltaSigma(short_sample_buff[i]);
 #else
 		samp=sampToI2s(short_sample_buff[i]);
@@ -381,8 +388,9 @@ void ICACHE_FLASH_ATTR user_init(void) {
 	//Tell hardware to run at 160MHz instead of 80MHz
 	//This actually is not needed in normal situations... the hardware is quick enough to do
 	//MP3 decoding at 80MHz. It, however, seems to help with receiving data over long and/or unstable
-	//links, so you may want to turn it on.
-#if 1
+	//links, so you may want to turn it on. Also, the delta-sigma code seems to need a bit more speed
+	//than the other solutions to keep up with the output samples, so it's also enabled there.
+#if defined(DELTA_SIGMA_HACK)
 	SET_PERI_REG_MASK(0x3ff00014, BIT(0));
 	os_update_cpu_frequency(160);
 #endif
