@@ -40,7 +40,7 @@ bus as the SPI flash:
 
 ```
 ESP pin   - 23LC1024 pin
-\------------------------
+------------------------
 GPIO0     - /CS (1)
 SD_D0     - SO/SI1 (2)
 SD_D3     - SIO2 (3) *
@@ -64,9 +64,9 @@ work as well. The connections to make here are:
 
 ```
 ESP pin   - I2S signal
-\----------------------
-GPIO2/TX1   - DATA
-GPIO13      - LRCK
+----------------------
+GPIO2/TX1   - LRCK
+GPIO3/RX0   - DATA
 GPIO15      - BCLK
 ```
 
