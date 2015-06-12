@@ -78,6 +78,23 @@ static int sampToI2sPwm(short s) {
 	return samp;
 }
 
+static int sampToI2sDeltaSigma(short s) {
+	int x;
+	int val=0;
+	int w;
+	static int outReg;
+	for (x=0; x<32; x++) {
+		w=s;
+		if (outReg>0) w-=32767; else w+=32767; //DDC/difference
+		w+=outReg; //adder
+		outReg=w; //register;
+		if (w>0) val|=1; //comparator
+		val<<=1; //next bit
+	}
+	return val;
+}
+
+
 
 //Calculate the number of samples that we add or delete. Added samples means a slightly lower
 //playback rate, deleted samples means we increase playout speed a bit. This returns an
@@ -138,7 +155,7 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 	sampErr+=sampAddDel;
 	for (i=0; i<no_samples; i++) {
 #ifdef PWM_HACK
-		samp=sampToI2sPwm(short_sample_buff[i]);
+		samp=sampToI2sDeltaSigma(short_sample_buff[i]);
 #else
 		samp=sampToI2s(short_sample_buff[i]);
 #endif
@@ -365,7 +382,7 @@ void ICACHE_FLASH_ATTR user_init(void) {
 	//This actually is not needed in normal situations... the hardware is quick enough to do
 	//MP3 decoding at 80MHz. It, however, seems to help with receiving data over long and/or unstable
 	//links, so you may want to turn it on.
-#if 0
+#if 1
 	SET_PERI_REG_MASK(0x3ff00014, BIT(0));
 	os_update_cpu_frequency(160);
 #endif
