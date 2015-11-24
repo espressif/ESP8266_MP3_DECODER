@@ -58,6 +58,14 @@ bend up pin 1 (/CS) and piggyback it on the SPI flash chip that already is on th
 ESP module. Solder all the pins to the same pins on the SPI flash chip except
 for the bent /CS pin; use a wire to connect that to GPIO0.
 
+As Github user milkpirate correctly remarked, GPIO0 is also used to enter 
+programming mode on the ESP8266 and will interfere with correct flashing if kept 
+low. The correct way of flashing the module is to make GPIO0 low, reset the 
+ESP8266 to enter programming mode, then make GPIO0 high again. Tools like
+esptool.py generally follow this method to automatically enter programming
+mode; if you manually enter programming mode you may have to adjust your
+methodology.
+
 For the I2S codec, pick whatever chip or board works for you; this code was 
 written using a ES9023 chip, but other I2S boards and chips will probably
 work as well. The connections to make here are:
