@@ -95,7 +95,7 @@ to a server very close to you.
 To not use an I2S DAC chip, please edit mp3/user/playerconfig.h and
 define PWM_HACK. This uses some code to abuse the I2S module as a
 5-bit PWM generator. You can now connect an amplifier to the I2S
-data pin (GPIO2/TX1) of the ESP module. Connecting a speaker 
+data pin (GPIO3/RX0) of the ESP module. Connecting a speaker 
 directly may also work but is not advised: the GPIOs of the ESP
 are not meant to drive inductive loads directly.
 
