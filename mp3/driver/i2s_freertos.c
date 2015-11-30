@@ -225,29 +225,43 @@ void ICACHE_FLASH_ATTR i2sInit() {
 }
 
 
-#define BASEFREQ (12000000L)
+#define BASEFREQ (160000000L)
 #define ABS(x) (((x)>0)?(x):(-(x)))
 
 //Set the I2S sample rate, in HZ
 void i2sSetRate(int rate) {
 	//Find closest divider 
-	int bestbck=0, bestfreq=0;
+	int bestclkmdiv, bestbckdiv, bestbits, bestfreq=0;
 	int tstfreq;
-	int i;
-	//Calculate the base divider for 16 bits of data
-	int div=(BASEFREQ/(rate*32));
-	//The base divider can be off by as much as <1 Compensate by trying to make the amount of bytes in the
-	//i2s cycle more than 16. Do this by trying the amounts from 16 to 32 and keeping the one that fits best.
-	for (i=16; i<32; i++) {
-		tstfreq=BASEFREQ/(div*i*2);
-//		printf("Best (%d,%d) cur (%d,%d) div %d\n", bestbck, bestfreq, i, tstfreq, ABS(rate-tstfreq));
-		if (ABS(rate-tstfreq)<ABS(rate-bestfreq)) {
-			bestbck=i;
-			bestfreq=tstfreq;
+	int bckdiv, clkmdiv, bits;
+	/*
+		CLK_I2S = 160MHz / I2S_CLKM_DIV_NUM
+		BCLK = CLK_I2S / I2S_BCK_DIV_NUM
+		WS = BCLK/ 2 / (16 + I2S_BITS_MOD)
+		Note that I2S_CLKM_DIV_NUM must be >5 for I2S data
+		I2S_CLKM_DIV_NUM - 5-127
+		I2S_BCK_DIV_NUM - 2-127
+		
+		We also have the option to send out more than 2x16 bit per sample. Most I2S codecs will
+		ignore the extra bits and in the case of the 'fake' PWM/delta-sigma outputs, they will just lower the output
+		voltage a bit, so we add them when it makes sense.
+	*/
+	for (bckdiv=2; bckdiv<128; bckdiv++) {
+		for (clkmdiv=5; clkmdiv<128; clkmdiv++) {
+			for (bits=16; bits<20; bits++) {
+				tstfreq=BASEFREQ/(bckdiv*clkmdiv*bits*2);
+				if (ABS(rate-tstfreq)<ABS(rate-bestfreq)) {
+					bestfreq=tstfreq;
+					bestclkmdiv=clkmdiv;
+					bestbckdiv=bckdiv;
+					bestbits=bits;
+				}
+			}
 		}
 	}
 
-//	printf("ReqRate %d Div %d Bck %d Frq %d\n", rate, div, bestbck, BASEFREQ/(div*bestbck*2));
+	printf("ReqRate %d MDiv %d BckDiv %d Bits %d  Frq %d\n", 
+		rate, bestclkmdiv, bestbckdiv, bestbits, (int)(BASEFREQ/(bckdiv*clkmdiv*bits*2)));
 
 	CLEAR_PERI_REG_MASK(I2SCONF, I2S_TRANS_SLAVE_MOD|
 						(I2S_BITS_MOD<<I2S_BITS_MOD_S)|
@@ -255,8 +269,9 @@ void i2sSetRate(int rate) {
 						(I2S_CLKM_DIV_NUM<<I2S_CLKM_DIV_NUM_S));
 	SET_PERI_REG_MASK(I2SCONF, I2S_RIGHT_FIRST|I2S_MSB_RIGHT|I2S_RECE_SLAVE_MOD|
 						I2S_RECE_MSB_SHIFT|I2S_TRANS_MSB_SHIFT|
-						(((bestbck-1)&I2S_BCK_DIV_NUM )<<I2S_BCK_DIV_NUM_S)|
-						(((div-1)&I2S_CLKM_DIV_NUM)<<I2S_CLKM_DIV_NUM_S));
+						((bestbits-16)<<I2S_BITS_MOD_S)|
+						(((bestbckdiv)&I2S_BCK_DIV_NUM )<<I2S_BCK_DIV_NUM_S)|
+						(((bestclkmdiv)&I2S_CLKM_DIV_NUM)<<I2S_CLKM_DIV_NUM_S));
 }
 
 //Current DMA buffer we're writing to
