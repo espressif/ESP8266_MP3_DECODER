@@ -229,7 +229,7 @@ void ICACHE_FLASH_ATTR i2sInit() {
 #define ABS(x) (((x)>0)?(x):(-(x)))
 
 //Set the I2S sample rate, in HZ
-void i2sSetRate(int rate) {
+void ICACHE_FLASH_ATTR i2sSetRate(int rate) {
 	//Find closest divider 
 	int bestclkmdiv, bestbckdiv, bestbits, bestfreq=0;
 	int tstfreq;

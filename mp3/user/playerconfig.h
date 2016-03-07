@@ -85,7 +85,7 @@ R/C lowpass filter, eg 100 ohm in series with the output, 100NF from there to gr
 This will clock the ESP at 160MHz; the delta-sigma process eats just a bit too much
 CPU power to run stable at 80MHz without causing DMA dropouts.
 */
-//#define DELTA_SIGMA_HACK
+#define DELTA_SIGMA_HACK
 
 /*While a large (tens to hundreds of K) buffer is necessary for Internet streams, on a
 quiet network and with a direct connection to the stream server, you can get away with
