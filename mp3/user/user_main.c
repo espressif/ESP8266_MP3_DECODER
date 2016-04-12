@@ -189,7 +189,12 @@ void ICACHE_FLASH_ATTR set_dac_sample_rate(int rate) {
 	if (rate==oldRate) return;
 	oldRate=rate;
 	printf("Rate %d\n", rate);
-	i2sSetRate(rate);
+
+#ifdef ALLOW_VARY_SAMPLE_BITS
+	i2sSetRate(rate, 0);
+#else
+	i2sSetRate(rate, 1);
+#endif
 }
 
 static enum  mad_flow ICACHE_FLASH_ATTR input(struct mad_stream *stream) {

@@ -67,6 +67,13 @@ the music sounding higher/lower due to network issues.*/
 Same as ADD_DEL_BUFFPERSAMP but for systems without a big SPI RAM chip to buffer mp3 data in.*/
 #define ADD_DEL_BUFFPERSAMP_NOSPIRAM (1500)
 
+/*Most I2S codecs are okay with getting more than 16 samples, and we can use this to get the
+sample rate we send out somewhat closer to the real sample rate of the MP3 stream. Some codecs
+however (e.g. the PCM5102) will not output anything when this happens. Undefine the following
+define in that case, it makes the I2S port always send out strictly 16-bit samples.*/
+#define ALLOW_VARY_SAMPLE_BITS
+
+
 /*While connecting an I2S codec to the I2S port of the ESP is obviously the best way to get nice
 16-bit sounds out of the ESP, it is possible to run this code without the codec. For
 this to work, instead of outputting a 2x16bit PCM sample the DAC can decode, we use the I2S

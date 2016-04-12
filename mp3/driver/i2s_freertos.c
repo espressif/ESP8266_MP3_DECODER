@@ -229,7 +229,7 @@ void ICACHE_FLASH_ATTR i2sInit() {
 #define ABS(x) (((x)>0)?(x):(-(x)))
 
 //Set the I2S sample rate, in HZ
-void ICACHE_FLASH_ATTR i2sSetRate(int rate) {
+void ICACHE_FLASH_ATTR i2sSetRate(int rate, int lockBitcount) {
 	//Find closest divider 
 	int bestclkmdiv, bestbckdiv, bestbits, bestfreq=0;
 	int tstfreq;
@@ -244,11 +244,12 @@ void ICACHE_FLASH_ATTR i2sSetRate(int rate) {
 		
 		We also have the option to send out more than 2x16 bit per sample. Most I2S codecs will
 		ignore the extra bits and in the case of the 'fake' PWM/delta-sigma outputs, they will just lower the output
-		voltage a bit, so we add them when it makes sense.
+		voltage a bit, so we add them when it makes sense. Some of them, however, won't accept it, that's
+		why we have the option not to do this.
 	*/
 	for (bckdiv=2; bckdiv<128; bckdiv++) {
 		for (clkmdiv=5; clkmdiv<128; clkmdiv++) {
-			for (bits=16; bits<20; bits++) {
+			for (bits=16; bits<(lockBitcount?17:20); bits++) {
 				tstfreq=BASEFREQ/(bckdiv*clkmdiv*bits*2);
 				if (ABS(rate-tstfreq)<ABS(rate-bestfreq)) {
 					bestfreq=tstfreq;
