@@ -239,16 +239,16 @@ void ICACHE_FLASH_ATTR i2sSetRate(int rate, int lockBitcount) {
 		BCLK = CLK_I2S / I2S_BCK_DIV_NUM
 		WS = BCLK/ 2 / (16 + I2S_BITS_MOD)
 		Note that I2S_CLKM_DIV_NUM must be >5 for I2S data
-		I2S_CLKM_DIV_NUM - 5-127
-		I2S_BCK_DIV_NUM - 2-127
+		I2S_CLKM_DIV_NUM - 5-63
+		I2S_BCK_DIV_NUM - 2-63
 		
 		We also have the option to send out more than 2x16 bit per sample. Most I2S codecs will
 		ignore the extra bits and in the case of the 'fake' PWM/delta-sigma outputs, they will just lower the output
 		voltage a bit, so we add them when it makes sense. Some of them, however, won't accept it, that's
 		why we have the option not to do this.
 	*/
-	for (bckdiv=2; bckdiv<128; bckdiv++) {
-		for (clkmdiv=5; clkmdiv<128; clkmdiv++) {
+	for (bckdiv=2; bckdiv<64; bckdiv++) {
+		for (clkmdiv=5; clkmdiv<64; clkmdiv++) {
 			for (bits=16; bits<(lockBitcount?17:20); bits++) {
 				tstfreq=BASEFREQ/(bckdiv*clkmdiv*bits*2);
 				if (ABS(rate-tstfreq)<ABS(rate-bestfreq)) {
