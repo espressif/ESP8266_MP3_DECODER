@@ -346,7 +346,7 @@ void ICACHE_FLASH_ATTR tskreader(void *pvParameters) {
 			if (n>0) spiRamFifoWrite(wbuf, n);
 			c+=n;
 			if ((!madRunning) && (spiRamFifoFree()<spiRamFifoLen()/2)) {
-				//Buffer is filled. Start up the MAD task. Yes, the 2100 bytes of stack is a fairly large amount but MAD seems to need it.
+				//Buffer is filled. Start up the MAD task. Yes, the 2100 words of stack is a fairly large amount but MAD seems to need it.
 				if (xTaskCreate(tskmad, "tskmad", 2100, NULL, PRIO_MAD, NULL)!=pdPASS) printf("ERROR creating MAD task! Out of memory?\n");
 				madRunning=1;
 			}
