@@ -4,8 +4,8 @@
 /*
 Define the access point name and its password here.
 */
-#define AP_NAME "testjmd"
-#define AP_PASS "pannenkoek"
+#define AP_NAME "ARJUN"
+#define AP_PASS "0123456789"
 
 /* Define stream URL here. For example, the URL to the MP3 stream of a certain Dutch radio station
 is http://icecast.omroep.nl/3fm-sb-mp3 . This translates of a server name of "icecast.omroep.nl"
@@ -82,7 +82,7 @@ value that has an amount of 1's set that's linearily related to the sound sample
 then output that value on the I2S port. The net result is that the average analog value on the 
 I2S data pin corresponds to the value of the MP3 sample we're trying to output. Needless to
 say, a hacked 5-bit PWM output is going to sound a lot worse than a real I2S codec.*/
-//#define PWM_HACK
+#define PWM_HACK
 
 /*
 As an alternative to the PWM hack, you can also use a 2nd order delta sigma converter to
@@ -102,7 +102,7 @@ this if you don't have a 23LC1024 chip connected to the ESP but still want to tr
 the MP3 decoder. Be warned, if your network isn't 100% quiet and latency-free and/or
 the server isn't very close to your ESP, this _will_ lead to stutters in the played 
 MP3 stream! */
-//#define FAKE_SPI_BUFF
+#define FAKE_SPI_BUFF
 
 
 #endif
